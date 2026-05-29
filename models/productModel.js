@@ -1,30 +1,6 @@
 import mongoose from "mongoose";
 import { getStockToBaseFactor } from "../util/uomConverter.js";
 
-const parseMMYY = (value) => {
-  const match = String(value || "").trim().match(/^(\d{2})\.(\d{2})$/);
-  if (!match) return null;
-  const month = Number(match[1]);
-  const year = 2000 + Number(match[2]);
-  if (!Number.isFinite(month) || !Number.isFinite(year) || month < 1 || month > 12) {
-    return null;
-  }
-  return { month, year };
-};
-
-const isExpiryReached = (exp) => {
-  const parsed = parseMMYY(exp);
-  if (!parsed) return false;
-
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth() + 1;
-
-  if (parsed.year < currentYear) return true;
-  if (parsed.year === currentYear && parsed.month <= currentMonth) return true;
-  return false;
-};
-
 const productSchema = new mongoose.Schema(
   {
     name: {
@@ -125,37 +101,6 @@ const productSchema = new mongoose.Schema(
       min: 0,
       default: 0,
     },
-    bno: {
-      type: String,
-      trim: true,
-    },
-
-    mfg: {
-      type: String,
-      trim: true,
-      validate: {
-        validator: (value) =>
-          value === null ||
-          value === undefined ||
-          value === "" ||
-          /^(0[1-9]|1[0-2])\.\d{2}$/.test(String(value).trim()),
-        message: "MFG must be in MM.YY format (example: 05.26)",
-      },
-    },
-
-    exp: {
-      type: String,
-      trim: true,
-      validate: {
-        validator: (value) =>
-          value === null ||
-          value === undefined ||
-          value === "" ||
-          /^(0[1-9]|1[0-2])\.\d{2}$/.test(String(value).trim()),
-        message: "EXP must be in MM.YY format (example: 05.26)",
-      },
-    },
-
     date: {
       type: Date,
       default: Date.now,
@@ -203,10 +148,6 @@ productSchema.pre("save", function (next) {
   this.actualStock = Number(((Number(this.stock) || 0) * getStockToBaseFactor(this)).toFixed(4));
   this.lowStock = this.stock <= 10;
 
-  // Auto-inactivate products whose expiry month has been reached.
-  if (isExpiryReached(this.exp)) {
-    this.status = "Inactive";
-  }
   next();
 });
 
@@ -247,19 +188,6 @@ productSchema.pre("findOneAndUpdate", async function (next) {
       };
       rootUpdate.actualStock = Number((nextStock * getStockToBaseFactor(factorSource)).toFixed(4));
       rootUpdate.lowStock = nextStock <= 10;
-    }
-
-    const hasExp = rootUpdate.exp !== undefined;
-    if (hasExp || rootUpdate.status === undefined) {
-      const existingDoc = await this.model
-        .findOne(this.getQuery())
-        .select("exp")
-        .lean();
-      const nextExp = hasExp ? rootUpdate.exp : existingDoc?.exp;
-
-      if (isExpiryReached(nextExp)) {
-        rootUpdate.status = "Inactive";
-      }
     }
 
     if (update?.$set) {

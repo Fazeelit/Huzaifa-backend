@@ -1,65 +1,6 @@
 import mongoose from "mongoose";
 import Product from "../models/productModel.js";
 
-const resolveYearForExpirySync = (yy) => {
-  const parsed = Number(yy);
-  if (Number.isNaN(parsed)) return NaN;
-  if (parsed >= 0 && parsed <= 99) return 2000 + parsed;
-  return parsed;
-};
-
-const parseExpiryForAutoInactive = (value) => {
-  if (value === null || value === undefined) return null;
-
-  const clean = String(value).trim().replace("/", ".");
-  const mmYY = clean.match(/^(\d{1,2})\.(\d{1,2})$/);
-  if (mmYY) {
-    const month = Number(mmYY[1]);
-    const year = resolveYearForExpirySync(mmYY[2].padStart(2, "0"));
-    if (month >= 1 && month <= 12 && year >= 2000) return { month, year };
-  }
-
-  const digits = clean.replace(/\D/g, "");
-  if (digits.length === 3 || digits.length === 4) {
-    const padded = digits.padStart(4, "0");
-    const month = Number(padded.slice(0, 2));
-    const year = resolveYearForExpirySync(padded.slice(2));
-    if (month >= 1 && month <= 12 && year >= 2000) return { month, year };
-  }
-
-  return null;
-};
-
-const isExpiryReachedForAutoInactive = (expValue) => {
-  const parsed = parseExpiryForAutoInactive(expValue);
-  if (!parsed) return false;
-
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth() + 1;
-
-  if (parsed.year < currentYear) return true;
-  if (parsed.year === currentYear && parsed.month <= currentMonth) return true;
-  return false;
-};
-
-const markExpiredProductsInactive = async () => {
-  const activeProducts = await Product.find({ status: { $ne: "Inactive" } })
-    .select("_id exp")
-    .lean();
-
-  const expiredIds = activeProducts
-    .filter((product) => isExpiryReachedForAutoInactive(product?.exp))
-    .map((product) => product._id);
-
-  if (!expiredIds.length) return;
-
-  await Product.updateMany(
-    { _id: { $in: expiredIds } },
-    { $set: { status: "Inactive" } }
-  );
-};
-
 const parseBoolean = (value, fallback = false) => {
   if (value === undefined || value === null || value === "") return fallback;
   if (typeof value === "boolean") return value;
@@ -81,8 +22,6 @@ const parseNonNegativeNumber = (value, fallback = 0) => {
  */
 const getAllProducts = async (req, res) => {
   try {
-    await markExpiredProductsInactive();
-
     // Accept search and filter from query parameters (safer than params)
     const { search = "", filter = "All" } = req.query;
 
@@ -106,13 +45,13 @@ const getAllProducts = async (req, res) => {
     }
     if (filter === "Out of Stock") query.stock = 0;
 
-    // Fetch products, return exactly as stored in DB (including numeric exp/mfg)
+    // Fetch products, return exactly as stored in DB
     const products = await Product.find(query).sort({ createdAt: -1 }).lean();
 
     res.status(200).json({
       success: true,
       count: products.length,
-      data: products, // exp/mfg still numeric like 3.27
+      data: products,
     });
   } catch (error) {
     console.error(error);
@@ -126,74 +65,6 @@ const getAllProducts = async (req, res) => {
 /**
  * Get product by ID
  */
-/* Resolve two-digit year in expiry context */
-const resolveYear = (yy) => {
-  yy = Number(yy);
-  if (Number.isNaN(yy)) return NaN;
-  if (yy >= 0 && yy <= 99) return 2000 + yy;
-  return yy;
-};
-
-/* Parse legacy MM.YY values (string/number like 3.27, 03.27, 0327) */
-const parseLegacyMMYY = (value) => {
-  if (value === null || value === undefined) return null;
-
-  const clean = String(value).trim().replace("/", ".");
-  const mmYY = clean.match(/^(\d{1,2})\.(\d{1,2})$/);
-  if (mmYY) {
-    const month = Number(mmYY[1]);
-    const year = resolveYear(mmYY[2].padStart(2, "0"));
-    if (month >= 1 && month <= 12 && year >= 2000) {
-      return { month, year };
-    }
-  }
-
-  const digits = clean.replace(/\D/g, "");
-  if (digits.length === 3 || digits.length === 4) {
-    const padded = digits.padStart(4, "0");
-    const month = Number(padded.slice(0, 2));
-    const year = resolveYear(padded.slice(2));
-    if (month >= 1 && month <= 12 && year >= 2000) {
-      return { month, year };
-    }
-  }
-
-  return null;
-};
-
-/* Normalize any incoming expiry to strict MM.YY */
-const normalizeMMYY = (value) => {
-  if (!value) return null;
-
-  const legacy = parseLegacyMMYY(value);
-  if (legacy) {
-    return `${String(legacy.month).padStart(2, "0")}.${String(
-      legacy.year % 100
-    ).padStart(2, "0")}`;
-  }
-
-  if (typeof value === "number" && value > 10000) {
-    const date = new Date(value);
-    if (!isNaN(date.getTime())) {
-      return `${String(date.getUTCMonth() + 1).padStart(2, "0")}.${String(
-        date.getUTCFullYear() % 100
-      ).padStart(2, "0")}`;
-    }
-    return null;
-  }
-
-  const date = new Date(value);
-  if (isNaN(date.getTime())) return null;
-
-  const year = date.getUTCFullYear();
-  const month = date.getUTCMonth() + 1;
-  if (year < 2000 || month < 1 || month > 12) return null;
-
-  return `${String(month).padStart(2, "0")}.${String(year % 100).padStart(
-    2,
-    "0"
-  )}`;
-};
 
 const normalizeUrduText = (value) =>
   String(value || "")
@@ -203,8 +74,6 @@ const normalizeUrduText = (value) =>
 
 const getProductById = async (req, res) => {
   try {
-    await markExpiredProductsInactive();
-
     const { id } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -224,14 +93,9 @@ const getProductById = async (req, res) => {
     }
 
     /* ✅ Normalize MFG / EXP before sending */
-    const normalizedProduct = { ...product };
-
-    normalizedProduct.mfg = normalizeMMYY(product.mfg);
-    normalizedProduct.exp = normalizeMMYY(product.exp);
-
     res.status(200).json({
       success: true,
-      data: normalizedProduct,
+      data: product,
     });
   } catch (error) {
     res.status(500).json({
@@ -296,10 +160,6 @@ const createProduct = async (req, res) => {
       stock: Number(req.body.stock),
 
       manufacturer: normalizeUrduText(req.body.manufacturer),
-      bno: req.body.bno || "",
-
-      mfg: normalizeMMYY(req.body.mfg),
-      exp: normalizeMMYY(req.body.exp),
       date: parseDate(req.body.date),
 
       status: (req.body.status || "Active").trim(),
@@ -360,8 +220,6 @@ const createProduct = async (req, res) => {
  */
 const updateProduct = async (req, res) => {
   try {
-    await markExpiredProductsInactive();
-
     const { id } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -369,40 +227,6 @@ const updateProduct = async (req, res) => {
         success: false,
         message: "Invalid product ID",
       });
-    }
-
-    /* ---------------- NORMALIZE DATES ---------------- */
-
-    /* ---------------- APPLY NORMALIZATION ---------------- */
-
-    if ("mfg" in req.body) {
-      if (!req.body.mfg) {
-        req.body.mfg = null;
-      } else {
-        const normalized = normalizeMMYY(req.body.mfg);
-        if (!normalized) {
-          return res.status(400).json({
-            success: false,
-            message: "MFG must be in MM.YY format (example: 05.26)",
-          });
-        }
-        req.body.mfg = normalized;
-      }
-    }
-
-    if ("exp" in req.body) {
-      if (!req.body.exp) {
-        req.body.exp = null;
-      } else {
-        const normalized = normalizeMMYY(req.body.exp);
-        if (!normalized) {
-          return res.status(400).json({
-            success: false,
-            message: "EXP must be in MM.YY format (example: 05.26)",
-          });
-        }
-        req.body.exp = normalized;
-      }
     }
 
     if ("date" in req.body) {
@@ -539,8 +363,6 @@ const deleteProduct = async (req, res) => {
  */
 const getProductStats = async (req, res) => {
   try {
-    await markExpiredProductsInactive();
-
     const totalProducts = await Product.countDocuments();
     const activeProducts = await Product.countDocuments({ status: "Active" });
     const lowStock = await Product.countDocuments({ stock: { $lte: 10 } });
@@ -567,8 +389,6 @@ const getProductStats = async (req, res) => {
  */
 const getProductName = async (req, res) => {
   try {
-    await markExpiredProductsInactive();
-
     // Fetch name, manufacturer, sale price, stock, etc.
     const products = await Product.find(
       {},
