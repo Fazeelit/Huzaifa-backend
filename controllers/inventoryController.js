@@ -119,21 +119,12 @@ const bulkStockInventory = async (req, res) => {
         });
       }
 
-      const normalizedMfg = normalizeMMYY(row?.mfgDate || row?.mfg || product.mfg);
-      if (!normalizedMfg) {
-        return res.status(400).json({
-          success: false,
-          message: `Invalid MFG date for item: ${row?.name || "Unknown"}`,
-        });
-      }
-
       validated.push({
         row,
         product,
         purchaseQty,
         purchasePrice,
         salePrice,
-        normalizedMfg,
       });
     }
 
@@ -141,7 +132,7 @@ const bulkStockInventory = async (req, res) => {
     let totalBaseUnitsAdded = 0;
 
     for (const entry of validated) {
-      const { row, product, purchaseQty, purchasePrice, salePrice, normalizedMfg } = entry;
+      const { row, product, purchaseQty, purchasePrice, salePrice } = entry;
       const beforeStock = Number(product.stock || 0);
       const afterStock = Number((beforeStock + purchaseQty).toFixed(4));
       const uom = row?.uom || product.unit || product.baseUnit || "unit";
@@ -159,8 +150,6 @@ const bulkStockInventory = async (req, res) => {
         stock: afterStock,
         purchasePrice,
         salePrice,
-        bno: String(row?.batchNo || product.bno || "").trim(),
-        mfg: normalizedMfg,
         manufacturer: String(row?.manufacturer || row?.company || product.manufacturer || "").trim(),
         discountAllowed,
         maxAllowedDiscount,
@@ -202,8 +191,6 @@ const bulkStockInventory = async (req, res) => {
       inventoryItems.push({
         productId: product._id,
         name: product.name,
-        batchNo: nextUpdate.bno,
-        mfgDate: normalizedMfg,
         purchaseQty,
         purchasePrice,
         salePrice,
