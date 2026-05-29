@@ -34,8 +34,7 @@ const normalizeOrigin = (origin) => origin.replace(/\/+$/, "");
 
 const allowedOrigins = [
   "http://localhost:3000",
-  "https://aihubfrontend1.vercel.app/",
-  "https://smartaihubfrontend.vercel.app/",
+  "https://huzaifa-autos.vercel.app/",  
   ...config.webAppUrl,
 ]
   .filter(Boolean)
