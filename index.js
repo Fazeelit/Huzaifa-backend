@@ -30,15 +30,34 @@ const app = express();
 =====================================================
 */
 // ------------------ CORS Setup ------------------
-const normalizeOrigin = (origin) => origin.replace(/\/+$/, "");
+const normalizeOrigin = (origin) => String(origin || "").trim().replace(/\/+$/, "");
 
-const allowedOrigins = [
+const defaultAllowedOrigins = [
   "http://localhost:3000",
-  "https://huzaifa-autos.vercel.app/",  
-  ...config.webAppUrl,
-]
-  .filter(Boolean)
-  .map(normalizeOrigin);
+  "http://localhost:3001",
+  "http://127.0.0.1:3000",
+  "http://127.0.0.1:3001",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "https://huzaifa-autos.vercel.app",
+];
+
+const allowedOrigins = new Set(
+  [...defaultAllowedOrigins, ...config.webAppUrl]
+    .filter(Boolean)
+    .map(normalizeOrigin),
+);
+
+const isAllowedOrigin = (origin) => {
+  const normalizedOrigin = normalizeOrigin(origin);
+
+  if (allowedOrigins.has(normalizedOrigin)) {
+    return true;
+  }
+
+  // Allow Vercel preview deployments for the same app family.
+  return /^https:\/\/huzaifa-autos(?:-.*)?\.vercel\.app$/i.test(normalizedOrigin);
+};
 
 app.use(
   cors({
@@ -48,12 +67,11 @@ app.use(
         return callback(null, true);
       }
 
-      const normalizedOrigin = normalizeOrigin(origin);
-
-      if (allowedOrigins.includes(normalizedOrigin)) {
+      if (isAllowedOrigin(origin)) {
         return callback(null, true);
       }
 
+      console.error(`Blocked by CORS: ${origin}`);
       return callback(new Error("Not allowed by CORS"));
     },
     credentials: true,

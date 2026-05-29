@@ -1,3 +1,9 @@
+const parseUrlList = (value) =>
+  String(value || "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
 export default {
   port: process.env.PORT || 8080,
   host: process.env.HOST || "127.0.0.1",
@@ -23,7 +29,7 @@ export default {
   emailFrom: process.env.EMAIL_FROM,
 
   // Frontend URLs (CORS)
-  webAppUrl: process.env.WEBAPP_URL ? process.env.WEBAPP_URL.split(",") : [],
+  webAppUrl: parseUrlList(process.env.WEBAPP_URL),
 
   // Cloudinary
   cloudinary: {
