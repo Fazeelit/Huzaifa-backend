@@ -119,14 +119,7 @@ const bulkStockInventory = async (req, res) => {
         });
       }
 
-      const normalizedExp = normalizeMMYY(row?.expiryDate || row?.exp || product.exp);
       const normalizedMfg = normalizeMMYY(row?.mfgDate || row?.mfg || product.mfg);
-      if (!normalizedExp) {
-        return res.status(400).json({
-          success: false,
-          message: `Invalid expiry date for item: ${row?.name || "Unknown"}`,
-        });
-      }
       if (!normalizedMfg) {
         return res.status(400).json({
           success: false,
@@ -141,7 +134,6 @@ const bulkStockInventory = async (req, res) => {
         purchasePrice,
         salePrice,
         normalizedMfg,
-        normalizedExp,
       });
     }
 
@@ -149,7 +141,7 @@ const bulkStockInventory = async (req, res) => {
     let totalBaseUnitsAdded = 0;
 
     for (const entry of validated) {
-      const { row, product, purchaseQty, purchasePrice, salePrice, normalizedMfg, normalizedExp } = entry;
+      const { row, product, purchaseQty, purchasePrice, salePrice, normalizedMfg } = entry;
       const beforeStock = Number(product.stock || 0);
       const afterStock = Number((beforeStock + purchaseQty).toFixed(4));
       const uom = row?.uom || product.unit || product.baseUnit || "unit";
@@ -169,7 +161,6 @@ const bulkStockInventory = async (req, res) => {
         salePrice,
         bno: String(row?.batchNo || product.bno || "").trim(),
         mfg: normalizedMfg,
-        exp: normalizedExp,
         manufacturer: String(row?.manufacturer || row?.company || product.manufacturer || "").trim(),
         discountAllowed,
         maxAllowedDiscount,
@@ -213,7 +204,6 @@ const bulkStockInventory = async (req, res) => {
         name: product.name,
         batchNo: nextUpdate.bno,
         mfgDate: normalizedMfg,
-        expiryDate: normalizedExp,
         purchaseQty,
         purchasePrice,
         salePrice,
