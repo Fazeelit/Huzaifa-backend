@@ -38,7 +38,7 @@ const defaultAllowedOrigins = [
   "http://127.0.0.1:3000",
   "http://127.0.0.1:3001",
   "http://localhost:5173",
-  "huzaifa-autoz2.vercel.app/",
+  "https://huzaifa-autoz2.vercel.app",
 ];
 
 const allowedOrigins = new Set(
@@ -55,7 +55,7 @@ const isAllowedOrigin = (origin) => {
   }
 
   // Allow Vercel preview deployments for the same app family.
-  return /^https:\/\/huzaifa-autos(?:-.*)?\.vercel\.app$/i.test(normalizedOrigin);
+  return /^https:\/\/huzaifa-auto[a-z0-9-]*\.vercel\.app$/i.test(normalizedOrigin);
 };
 
 app.use(
