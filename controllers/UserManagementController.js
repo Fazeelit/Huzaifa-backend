@@ -5,6 +5,22 @@ import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
 
 const normalizeRole = (role) => String(role || "").trim().toUpperCase();
+const escapeRegex = (value) => String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const buildLoginIdentityQuery = (value) => {
+  const trimmedValue = String(value || "").trim();
+  const normalizedEmail = trimmedValue.toLowerCase();
+  const exactPattern = new RegExp(`^${escapeRegex(trimmedValue)}$`, "i");
+
+  return {
+    $or: [
+      { email: normalizedEmail },
+      { email: exactPattern },
+      { username: exactPattern },
+      { name: exactPattern },
+    ],
+  };
+};
 
 const ensureAssignableRole = async (role) => {
   const normalizedRole = normalizeRole(role);
@@ -116,12 +132,13 @@ const loginUser = async (req, res) => {
     if (!password || typeof password !== "string")
       return res.status(400).json({ message: "Password is required and must be a string" });
 
-    const user = await User.findOne({ email: normalizedEmail });
+    const loginIdentityQuery = buildLoginIdentityQuery(email);
+    const user = await User.findOne(loginIdentityQuery);
 
     // Fallback: allow admin accounts to login from the same endpoint
     if (!user) {
       const admin = await User.findOne({
-        email: normalizedEmail,
+        ...loginIdentityQuery,
         role: "ADMIN",
       });
       if (!admin) {
