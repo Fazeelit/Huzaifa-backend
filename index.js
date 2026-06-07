@@ -47,10 +47,23 @@ const allowedOrigins = new Set(
     .map(normalizeOrigin),
 );
 
+const isLoopbackOrLanOrigin = (origin) => {
+  const normalizedOrigin = normalizeOrigin(origin);
+
+  return /^(https?:\/\/)(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(normalizedOrigin)
+    || /^(https?:\/\/)(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(?::\d+)?$/i.test(
+      normalizedOrigin,
+    );
+};
+
 const isAllowedOrigin = (origin) => {
   const normalizedOrigin = normalizeOrigin(origin);
 
   if (allowedOrigins.has(normalizedOrigin)) {
+    return true;
+  }
+
+  if (isLoopbackOrLanOrigin(normalizedOrigin)) {
     return true;
   }
 

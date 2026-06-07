@@ -6,19 +6,45 @@ import mongoose from "mongoose";
 
 const normalizeRole = (role) => String(role || "").trim().toUpperCase();
 const escapeRegex = (value) => String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const LOGIN_USER_FIELDS =
+  "_id name email password role department employeeId status lastLogin username";
 
-const buildLoginIdentityQuery = (value) => {
+const findLoginUser = async (value) => {
   const trimmedValue = String(value || "").trim();
+
+  if (!trimmedValue) {
+    return null;
+  }
+
   const normalizedEmail = trimmedValue.toLowerCase();
   const exactPattern = new RegExp(`^${escapeRegex(trimmedValue)}$`, "i");
 
+  const byEmail = await User.findOne({ email: normalizedEmail }).select(LOGIN_USER_FIELDS);
+  if (byEmail) {
+    return byEmail;
+  }
+
+  const byUsername = await User.findOne({ username: exactPattern }).select(LOGIN_USER_FIELDS);
+  if (byUsername) {
+    return byUsername;
+  }
+
+  return User.findOne({ name: exactPattern }).select(LOGIN_USER_FIELDS);
+};
+
+const buildLoginResponseUser = (user, permissions, lastLogin) => {
+  const normalizedRole = normalizeRole(user.role);
+
   return {
-    $or: [
-      { email: normalizedEmail },
-      { email: exactPattern },
-      { username: exactPattern },
-      { name: exactPattern },
-    ],
+    id: user._id,
+    name: user.username || user.name || "Admin",
+    email: user.email,
+    role: normalizedRole,
+    department: user.department || (normalizedRole === "ADMIN" ? "Administration" : ""),
+    employeeId: user.employeeId || (normalizedRole === "ADMIN" ? "ADMIN" : ""),
+    status: user.status,
+    lastLogin,
+    permissions,
   };
 };
 
@@ -124,7 +150,6 @@ const createUser = async (req, res) => {
 const loginUser = async (req, res) => {
   try {
     const { email, password, role: requestedRole } = req.body;
-    const normalizedEmail = String(email || "").trim().toLowerCase();
 
     if (!email || typeof email !== "string")
       return res.status(400).json({ message: "Email is required and must be a string" });
@@ -132,71 +157,9 @@ const loginUser = async (req, res) => {
     if (!password || typeof password !== "string")
       return res.status(400).json({ message: "Password is required and must be a string" });
 
-    const loginIdentityQuery = buildLoginIdentityQuery(email);
-    const user = await User.findOne(loginIdentityQuery);
-
-    // Fallback: allow admin accounts to login from the same endpoint
+    const user = await findLoginUser(email);
     if (!user) {
-      const admin = await User.findOne({
-        ...loginIdentityQuery,
-        role: "ADMIN",
-      });
-      if (!admin) {
-        return res.status(401).json({ message: "Invalid email or password" });
-      }
-
-      if (
-        requestedRole &&
-        String(requestedRole).toUpperCase() !== "ADMIN"
-      ) {
-        return res
-          .status(403)
-          .json({ message: "Selected role does not match user account role." });
-      }
-
-      const adminStatus = String(admin.status || "").toLowerCase();
-      if (adminStatus === "inactive") {
-        return res.status(403).json({
-          message: `Your account is ${admin.status}. Please contact admin.`,
-        });
-      }
-
-      const isAdminMatch = await bcrypt.compare(password, admin.password);
-      if (!isAdminMatch) {
-        return res.status(401).json({ message: "Invalid email or password" });
-      }
-
-      const token = jwt.sign(
-        {
-          id: admin._id,
-          name: admin.username || admin.name || "Admin",
-          role: "ADMIN",
-        },
-        process.env.JWT_SECRET,
-        { expiresIn: process.env.JWT_EXPIRE_IN || "7d" }
-      );
-
-      admin.lastLogin = new Date();
-      await admin.save();
-
-      return res.status(200).json({
-        success: true,
-        message: "User logged in successfully",
-        data: {
-          token,
-          user: {
-            id: admin._id,
-            name: admin.username || admin.name || "Admin",
-            email: admin.email,
-            role: "ADMIN",
-            department: "Administration",
-            employeeId: "ADMIN",
-            status: admin.status,
-            lastLogin: admin.lastLogin,
-            permissions: ["*"],
-          },
-        },
-      });
+      return res.status(401).json({ message: "Invalid email or password" });
     }
 
     if (
@@ -217,21 +180,6 @@ const loginUser = async (req, res) => {
     if (!isMatch)
       return res.status(401).json({ message: "Invalid email or password" });
 
-    // Generate Token
-    const token = jwt.sign(
-      {
-        id: user._id,
-        name: user.name,
-        role: user.role,
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRE_IN || "7d" }
-    );
-
-    // Update last login
-    user.lastLogin = new Date();
-    await user.save();
-
     const normalizedUserRole = normalizeRole(user.role);
     let permissions = [];
 
@@ -241,7 +189,9 @@ const loginUser = async (req, res) => {
       const roleDoc = await Role.findOne({
         role: normalizedUserRole,
         status: "ACTIVE",
-      }).lean();
+      })
+        .select("permissions")
+        .lean();
 
       if (!roleDoc) {
         return res.status(403).json({
@@ -252,22 +202,30 @@ const loginUser = async (req, res) => {
       permissions = Array.isArray(roleDoc.permissions) ? roleDoc.permissions : [];
     }
 
+    const lastLogin = new Date();
+
+    // Generate Token
+    const token = jwt.sign(
+      {
+        id: user._id,
+        name: user.username || user.name || "Admin",
+        role: normalizedUserRole,
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRE_IN || "7d" }
+    );
+
+    // Do not block login success on a metadata-only write.
+    void User.updateOne({ _id: user._id }, { $set: { lastLogin } }).catch((error) => {
+      console.error("Failed to update last login:", error.message);
+    });
+
     return res.status(200).json({
       success: true,
       message: "User logged in successfully",
       data: {
         token,
-        user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-            role: normalizedUserRole,
-          department: user.department,
-          employeeId: user.employeeId,
-          status: user.status,
-          lastLogin: user.lastLogin,
-          permissions,
-        },
+        user: buildLoginResponseUser(user, permissions, lastLogin),
       },
     });
   } catch (error) {
