@@ -94,6 +94,15 @@ const purchaseSchema = new mongoose.Schema(
         quantity: { type: Number, required: true },
         purchasePrice: { type: Number, required: true },
         manufacturer: { type: String, required: true },
+        status: {
+          type: String,
+          enum: ["Claim", "Returned"],
+        },
+        statusQuantity: {
+          type: Number,
+          default: 0,
+          min: 0,
+        },
       },
     ],
   },
