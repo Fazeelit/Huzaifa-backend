@@ -24,7 +24,6 @@ const paymentHistorySchema = new mongoose.Schema(
     date: { type: String, trim: true, default: "" },
     amount: { type: String, trim: true, default: "" },
     method: { type: String, trim: true, default: "" },
-    reference: { type: String, trim: true, default: "" },
     billId: { type: String, trim: true, default: "" },
     notes: { type: String, trim: true, default: "" },
   },

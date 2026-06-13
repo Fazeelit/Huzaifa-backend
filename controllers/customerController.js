@@ -31,7 +31,6 @@ const normalizePaymentHistory = (value) =>
         date: String(payment?.date || "").trim(),
         amount: String(payment?.amount || "").trim(),
         method: String(payment?.method || "").trim(),
-        reference: String(payment?.reference || "").trim(),
         billId: String(payment?.billId || "").trim(),
         notes: String(payment?.notes || "").trim(),
       }))
