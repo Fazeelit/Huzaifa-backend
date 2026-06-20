@@ -42,7 +42,7 @@ const defaultAllowedOrigins = [
   "http://127.0.0.1:3001",
   "http://localhost:5173",
   "http://127.0.0.1:5173",
-  "https://huzaifa-autos.vercel.app",
+  "https://huzaifa-autos02.vercel.app",
 ];
 
 const allowedOrigins = new Set(
