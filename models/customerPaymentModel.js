@@ -1,28 +1,28 @@
 import mongoose from "mongoose";
 
 /* -------------------------------
-  Supplier Payment Schema
+  Customer Payment Schema
 --------------------------------*/
-const supplierPaymentSchema = new mongoose.Schema(
+const customerPaymentSchema = new mongoose.Schema(
   {
-    supplierId: {
+    customerId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Supplier",
+      ref: "Customer",
       index: true,
     },
-    supplier: {
+    customer: {
       type: String,
       required: true,
       trim: true,
     },
-    supplierName: {
+    customerName: {
       type: String,
       trim: true,
       default: "",
     },
-    purchaseId: {
+    saleId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Purchase",
+      ref: "Sale",
       default: null,
       index: true,
     },
@@ -59,6 +59,6 @@ const supplierPaymentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-const SupplierPayment = mongoose.model("SupplierPayment", supplierPaymentSchema);
+const CustomerPayment = mongoose.model("CustomerPayment", customerPaymentSchema);
 
-export default SupplierPayment;
+export default CustomerPayment;

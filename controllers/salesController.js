@@ -31,6 +31,9 @@ const isWalkInCustomer = (salePayload = {}) => {
   return !customerName || customerName === "walk-in" || customerName === "walk in";
 };
 
+const normalizeOptionalObjectId = (value) =>
+  value && mongoose.Types.ObjectId.isValid(value) ? value : null;
+
 const resolveProductForSaleLine = async (line) => {
   if (line?.productId && mongoose.Types.ObjectId.isValid(line.productId)) {
     const byId = await Product.findById(line.productId);
@@ -193,6 +196,7 @@ const createSaleAndDeductStock = async (salePayload, session = null) => {
     salePayload.paymentStatus || derivePaymentStatus(paidAmount, totalAmount);
   const paymentMethod = String(salePayload.paymentMethod || "").trim();
   const paymentDate = salePayload.paymentDate ? new Date(salePayload.paymentDate) : null;
+  const selectedCustomer = salePayload?.selectedCustomer || salePayload?.customer || {};
   const paymentHistory =
     paidAmount > 0
       ? [
@@ -209,6 +213,18 @@ const createSaleAndDeductStock = async (salePayload, session = null) => {
     ...salePayload,
     invoiceNo: String(salePayload.invoiceNo || "").trim(),
     customerName: String(salePayload.customerName || "Walk-in").trim() || "Walk-in",
+    customerId: normalizeOptionalObjectId(
+      salePayload.customerId || selectedCustomer?._id || selectedCustomer?.id || null
+    ),
+    customerCnic: String(
+      salePayload.customerCnic || selectedCustomer?.cnic || selectedCustomer?.customerCnic || ""
+    ).trim(),
+    customerPhone: String(
+      salePayload.customerPhone || selectedCustomer?.phone || ""
+    ).trim(),
+    customerMobile: String(
+      salePayload.customerMobile || selectedCustomer?.mobile || selectedCustomer?.phone || ""
+    ).trim(),
     products: normalizedProducts,
     subtotal,
     discount,

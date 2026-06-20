@@ -31,6 +31,30 @@ const saleSchema = new mongoose.Schema(
       trim: true,
     },
 
+    customerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Customer",
+      default: null,
+    },
+
+    customerCnic: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    customerPhone: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    customerMobile: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
     products: [
       {
         productId: {

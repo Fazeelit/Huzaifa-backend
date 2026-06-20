@@ -55,58 +55,6 @@ const ensureSupplierExists = async (supplierName) => {
   }
 };
 
-const normalizePurchaseProduct = (product = {}) => {
-  const normalizedStatus = String(product.status || "").trim();
-  const rawStatusQuantity =
-    product.statusQuantity ?? product.statusQty ?? product.quantityStatus ?? 0;
-  const statusQuantity = Number(rawStatusQuantity);
-
-  return {
-    ...product,
-    purchasePrice: product.purchasePrice ?? product.price,
-    manufacturer: String(product.manufacturer || "").trim(),
-    status: normalizedStatus || undefined,
-    statusQuantity: Number.isFinite(statusQuantity) ? statusQuantity : rawStatusQuantity,
-  };
-};
-
-const validatePurchaseProducts = (products = []) => {
-  for (const product of products) {
-    if (
-      !product.productId ||
-      !product.name ||
-      product.quantity === undefined ||
-      product.quantity === null ||
-      !product.purchasePrice ||
-      !product.manufacturer
-    ) {
-      return "Each product must have productId, name, quantity, purchasePrice, manufacturer";
-    }
-
-    if (product.status && !["Claim", "Returned"].includes(product.status)) {
-      return 'Product status must be either "Claim" or "Returned"';
-    }
-
-    if (!Number.isFinite(Number(product.statusQuantity)) || Number(product.statusQuantity) < 0) {
-      return "Product status quantity must be a valid number";
-    }
-
-    if (Number(product.statusQuantity) > Number(product.quantity)) {
-      return "Product status quantity cannot be greater than product quantity";
-    }
-
-    if (product.status && Number(product.statusQuantity) <= 0) {
-      return "Product status quantity must be greater than 0 when status is selected";
-    }
-
-    if (!product.status && Number(product.statusQuantity) > 0) {
-      return "Product status is required when status quantity is greater than 0";
-    }
-  }
-
-  return null;
-};
-
 /* =======================
    GET ALL PURCHASES
 ======================= */
@@ -186,14 +134,19 @@ const createPurchase = async (req, res) => {
 
     const supplierNameForPurchase = await ensureSupplierExists(normalizedSupplier);
 
-    const normalizedProducts = products.map(normalizePurchaseProduct);
+    const normalizedProducts = products.map((p) => ({
+      ...p,
+      purchasePrice: p.purchasePrice ?? p.price,
+    }));
 
-    const productValidationError = validatePurchaseProducts(normalizedProducts);
-    if (productValidationError) {
-      return res.status(400).json({
-        success: false,
-        message: productValidationError,
-      });
+    // Validate products array
+    for (const p of normalizedProducts) {
+      if (!p.productId || !p.name || p.quantity === undefined || p.quantity === null || !p.purchasePrice || !p.manufacturer) {
+        return res.status(400).json({
+          success: false,
+          message: "Each product must have productId, name, quantity, purchasePrice, manufacturer",
+        });
+      }
     }
 
     const purchase = await Purchase.create({
@@ -259,14 +212,18 @@ const updatePurchase = async (req, res) => {
 
     const supplierNameForPurchase = await ensureSupplierExists(normalizedSupplier);
 
-    const normalizedProducts = products.map(normalizePurchaseProduct);
+    const normalizedProducts = products.map((p) => ({
+      ...p,
+      purchasePrice: p.purchasePrice ?? p.price,
+    }));
 
-    const productValidationError = validatePurchaseProducts(normalizedProducts);
-    if (productValidationError) {
-      return res.status(400).json({
-        success: false,
-        message: productValidationError,
-      });
+    for (const p of normalizedProducts) {
+      if (!p.productId || !p.name || p.quantity === undefined || p.quantity === null || !p.purchasePrice || !p.manufacturer) {
+        return res.status(400).json({
+          success: false,
+          message: "Each product must have productId, name, quantity, purchasePrice, manufacturer",
+        });
+      }
     }
 
     const purchase = await Purchase.findById(id);
@@ -489,3 +446,4 @@ export {
   deletePurchase,
   getPurchaseList,
 };
+

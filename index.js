@@ -19,8 +19,11 @@ import expenseRoutes from "./routes/expenseRoutes.js";
 import userManagementRoutes from "./routes/UserManagementRoutes.js";
 import roleRoutes from "./routes/RoleRoutes.js";
 import supplierRoutes from "./routes/supplierRoutes.js";
+import supplierPaymentRoutes from "./routes/supplierPaymentRoutes.js";
+import customerPaymentRoutes from "./routes/customerPaymentRoutes.js";
 import inventoryRoutes from "./routes/inventoryRoutes.js";
 import customerRoutes from "./routes/customerRoutes.js";
+import outdoorSupplyManagementRoutes from "./routes/outdoorSupplyManagementRoutes.js";
 
 const app = express();
 
@@ -38,7 +41,8 @@ const defaultAllowedOrigins = [
   "http://127.0.0.1:3000",
   "http://127.0.0.1:3001",
   "http://localhost:5173",
-  "https://huzaifa-autoz2.vercel.app",
+  "http://127.0.0.1:5173",
+  "https://huzaifa-autos.vercel.app",
 ];
 
 const allowedOrigins = new Set(
@@ -47,15 +51,6 @@ const allowedOrigins = new Set(
     .map(normalizeOrigin),
 );
 
-const isLoopbackOrLanOrigin = (origin) => {
-  const normalizedOrigin = normalizeOrigin(origin);
-
-  return /^(https?:\/\/)(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(normalizedOrigin)
-    || /^(https?:\/\/)(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(?::\d+)?$/i.test(
-      normalizedOrigin,
-    );
-};
-
 const isAllowedOrigin = (origin) => {
   const normalizedOrigin = normalizeOrigin(origin);
 
@@ -63,12 +58,8 @@ const isAllowedOrigin = (origin) => {
     return true;
   }
 
-  if (isLoopbackOrLanOrigin(normalizedOrigin)) {
-    return true;
-  }
-
   // Allow Vercel preview deployments for the same app family.
-  return /^https:\/\/huzaifa-auto[a-z0-9-]*\.vercel\.app$/i.test(normalizedOrigin);
+  return /^https:\/\/huzaifa-autos(?:-.*)?\.vercel\.app$/i.test(normalizedOrigin);
 };
 
 app.use(
@@ -132,8 +123,11 @@ app.use("/api/sales", salesRoutes);
 app.use("/api/expenses", expenseRoutes);
 app.use("/api/roles", roleRoutes);
 app.use("/api/suppliers", supplierRoutes);
+app.use("/api/supplierpayments", supplierPaymentRoutes);
+app.use("/api/customerpayments", customerPaymentRoutes);
 app.use("/api/inventory", inventoryRoutes);
 app.use("/api/customers", customerRoutes);
+app.use("/api/outdoor-supply-management", outdoorSupplyManagementRoutes);
 
 /*
 =====================================================

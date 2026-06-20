@@ -3,6 +3,8 @@ import Supplier from "../models/supplierModel.js";
 import Purchase from "../models/purchaseModel.js";
 import mongoose from "mongoose";
 
+const hasField = (body, key) => Object.prototype.hasOwnProperty.call(body, key);
+
 const parseAmount = (value) => {
   if (typeof value === "number") return value;
   const cleaned = String(value || "").replace(/[^0-9.-]/g, "");
@@ -13,6 +15,11 @@ const formatRs = (value) => `Rs. ${Number(value || 0).toLocaleString("en-IN")}`;
 
 const escapeRegex = (value = "") =>
   String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const normalizeStringArray = (value) =>
+  Array.isArray(value)
+    ? [...new Set(value.map((item) => String(item || "").trim()).filter(Boolean))]
+    : [];
 
 const buildStatisticsFromBills = (bills = []) => {
   const summary = {
@@ -157,6 +164,12 @@ const enrichSupplierRecords = async (suppliers) => {
     return {
       ...supplier,
       phone: supplier?.phone || supplier?.mobile || "",
+      mobile: supplier?.mobile || supplier?.phone || "",
+      company: supplier?.companyName || supplier?.company || "",
+      products: Array.isArray(supplier?.productsSupplied) ? supplier.productsSupplied : [],
+      openingBalance: Number(supplier?.openingBalance ?? 0) || 0,
+      creditLimit: Number(supplier?.creditLimit ?? 0) || 0,
+      preferred: Boolean(supplier?.preferred),
       purchaseCount: matchedPurchases.length,
       statistics: hasMeaningfulStatistics(statistics)
         ? { ...derivedStatistics, ...statistics }
@@ -165,36 +178,99 @@ const enrichSupplierRecords = async (suppliers) => {
   });
 };
 
+const enrichSingleSupplierRecord = (supplierDoc) => {
+  const supplier = supplierDoc?.toObject ? supplierDoc.toObject() : supplierDoc || {};
+  return {
+    ...supplier,
+    phone: supplier?.phone || supplier?.mobile || "",
+    mobile: supplier?.mobile || supplier?.phone || "",
+    company: supplier?.companyName || supplier?.company || "",
+    products: Array.isArray(supplier?.productsSupplied) ? supplier.productsSupplied : [],
+    openingBalance: Number(supplier?.openingBalance ?? 0) || 0,
+    creditLimit: Number(supplier?.creditLimit ?? 0) || 0,
+    preferred: Boolean(supplier?.preferred),
+  };
+};
+
 const recalculateSupplierStatistics = (supplier) => {
   const bills = Array.isArray(supplier?.bills) ? supplier.bills : [];
   return buildStatisticsFromBills(bills);
 };
 
-const normalizeSupplierPayload = (body = {}) => {
+const normalizeBillArray = (value) =>
+  Array.isArray(value)
+    ? value.map((bill, index) => ({
+        id: String(bill?.id || `BILL-${index + 1}`).trim(),
+        date: String(bill?.date || "").trim(),
+        description: String(bill?.description || "").trim(),
+        amount: String(bill?.amount || "").trim(),
+        paidAmount: String(bill?.paidAmount || "").trim(),
+        status: ["paid", "partial", "pending", "overdue"].includes(String(bill?.status || "").toLowerCase())
+          ? String(bill.status).toLowerCase()
+          : "pending",
+        paidDate: String(bill?.paidDate || "").trim(),
+        paymentMethod: String(bill?.paymentMethod || "").trim(),
+        reference: String(bill?.reference || "").trim(),
+        dueDate: String(bill?.dueDate || "").trim(),
+        notes: String(bill?.notes || "").trim(),
+      }))
+    : [];
+
+const normalizePaymentHistory = (value) =>
+  Array.isArray(value)
+    ? value.map((payment, index) => ({
+        id: String(payment?.id || `PAY-${index + 1}`).trim(),
+        date: String(payment?.date || "").trim(),
+        amount: String(payment?.amount || "").trim(),
+        method: String(payment?.method || "").trim(),
+        reference: String(payment?.reference || "").trim(),
+        billId: String(payment?.billId || "").trim(),
+        notes: String(payment?.notes || "").trim(),
+      }))
+    : [];
+
+const normalizeSupplierPayload = (body = {}, options = {}) => {
+  const { partial = false } = options;
   const phone = String(body.phone || "").trim();
+  const mobile = String(body.mobile || "").trim();
   const address = String(body.address || "").trim();
   const companyName = String(body.companyName || body.company || "").trim();
-  const productsSupplied = Array.isArray(body.productsSupplied)
-    ? body.productsSupplied
-    : Array.isArray(body.products)
-      ? body.products
-      : [];
+  const productsSupplied = normalizeStringArray(
+    Array.isArray(body.productsSupplied) ? body.productsSupplied : body.products
+  );
 
-  return {
-    supplierId:
-      String(body.supplierId || "").trim() ||
-      `SUP-${Date.now().toString().slice(-6)}`,
-    name: String(body.name || "").trim(),
-    contactPerson: String(body.contactPerson || "").trim(),
-    phone,
-    email: String(body.email || "").trim().toLowerCase(),
-    address: address || "N/A",
-    companyName,
-    productsSupplied,
-    paymentTerms: String(body.paymentTerms || "Cash").trim(),
-    status: String(body.status || "active").trim(),
-    notes: String(body.notes || "").trim(),
+  const payload = {};
+  const setValue = (key, value, sourceKeys = [key]) => {
+    if (!partial || sourceKeys.some((sourceKey) => hasField(body, sourceKey))) {
+      payload[key] = value;
+    }
   };
+
+  setValue(
+    "supplierId",
+    String(body.supplierId || "").trim() || `SUP-${Date.now().toString().slice(-6)}`,
+    ["supplierId"]
+  );
+  setValue("name", String(body.name || "").trim(), ["name"]);
+  setValue("contactPerson", String(body.contactPerson || "").trim(), ["contactPerson"]);
+  setValue("phone", phone || mobile, ["phone", "mobile"]);
+  setValue("mobile", mobile || phone, ["mobile", "phone"]);
+  setValue("email", String(body.email || "").trim().toLowerCase(), ["email"]);
+  setValue("address", address || "N/A", ["address"]);
+  setValue("companyName", companyName, ["companyName", "company"]);
+  setValue("productsSupplied", productsSupplied, ["productsSupplied", "products"]);
+  setValue("paymentTerms", String(body.paymentTerms || "Cash").trim(), ["paymentTerms"]);
+  setValue("status", String(body.status || "active").trim(), ["status"]);
+  setValue("notes", String(body.notes || "").trim(), ["notes"]);
+  setValue("openingBalance", Number(body.openingBalance ?? 0) || 0, ["openingBalance"]);
+  setValue("creditLimit", Number(body.creditLimit ?? 0) || 0, ["creditLimit"]);
+  setValue("preferred", Boolean(body.preferred), ["preferred"]);
+  setValue("bills", normalizeBillArray(body.bills), ["bills"]);
+  setValue("paymentHistory", normalizePaymentHistory(body.paymentHistory), ["paymentHistory"]);
+  setValue("totalDue", Number(body.totalDue ?? body.openingBalance ?? 0) || 0, ["totalDue", "openingBalance"]);
+  setValue("lastPurchase", String(body.lastPurchase || "").trim(), ["lastPurchase"]);
+
+  return payload;
 };
 
 // Create a new supplier
@@ -213,6 +289,11 @@ const createSupplier = async (req, res) => {
       paymentTerms,
       status,
       notes,
+      mobile,
+      openingBalance,
+      creditLimit,
+      preferred,
+      totalDue,
     } = payload;
 
     if (!name || !phone) {
@@ -240,16 +321,21 @@ const createSupplier = async (req, res) => {
       address,
       companyName,
       productsSupplied,
-      paymentTerms,      
+      paymentTerms,
       status,
       notes,
+      mobile,
+      openingBalance,
+      creditLimit,
+      preferred,
+      totalDue,
     });
 
     const savedSupplier = await supplier.save();
     res.status(201).json({
       success: true,
       message: "Supplier created successfully",
-      supplier: savedSupplier,
+      supplier: enrichSingleSupplierRecord(savedSupplier),
     });
   } catch (error) {
     console.error(error);
@@ -277,15 +363,15 @@ const getSupplierById = async (req, res) => {
   try {
     const supplier = await Supplier.findById(req.params.id);
     if (!supplier) {
-      return res.status(404).json({ message: "Supplier not found" });
+      return res.status(404).json({ success: false, message: "Supplier not found" });
     }
     res.status(200).json({
       success: true,
-      supplier,
+      supplier: enrichSingleSupplierRecord(supplier),
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Server Error" });
+    res.status(500).json({ success: false, message: "Server Error" });
   }
 };
 
@@ -461,7 +547,15 @@ const updateSupplier = async (req, res) => {
     }
 
     // 🔒 Prevent updating supplierId
-    const { supplierId, ...updateData } = normalizeSupplierPayload(req.body);
+    const { supplierId, ...updateData } = normalizeSupplierPayload(req.body, { partial: true });
+
+    if (Array.isArray(updateData.bills)) {
+      updateData.statistics = recalculateSupplierStatistics({ bills: updateData.bills });
+      updateData.totalDue = updateData.bills.reduce(
+        (sum, bill) => sum + Math.max(parseAmount(bill?.amount) - parseAmount(bill?.paidAmount), 0),
+        0
+      );
+    }
 
     const supplier = await Supplier.findByIdAndUpdate(
       id,
@@ -473,19 +567,27 @@ const updateSupplier = async (req, res) => {
     );
 
     if (!supplier) {
-      return res.status(404).json({ message: "Supplier not found" });
+      return res.status(404).json({ success: false, message: "Supplier not found" });
     }
 
     res.status(200).json({
       success: true,
       message: "Supplier updated successfully",
-      supplier,
+      supplier: enrichSingleSupplierRecord(supplier),
     });
 
   } catch (error) {
     console.error("❌ Update Supplier Error:", error.message);
     console.error(error); // FULL stack trace
+    if (error?.name === "ValidationError") {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+        error: error.message,
+      });
+    }
     res.status(500).json({
+      success: false,
       message: "Server Error",
       error: error.message, // TEMP: remove in production
     });

@@ -29,11 +29,7 @@ export default {
   emailFrom: process.env.EMAIL_FROM,
 
   // Frontend URLs (CORS)
-  webAppUrl: parseUrlList(
-    process.env.WEBAPP_URL ||
-      process.env.WEB_APP_URL ||
-      process.env.FRONTEND_URL,
-  ),
+  webAppUrl: parseUrlList(process.env.WEBAPP_URL),
 
   // Cloudinary
   cloudinary: {

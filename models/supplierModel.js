@@ -77,6 +77,12 @@ const SupplierSchema = new mongoose.Schema(
       match: [/^03\d{2}-\d{7}$/, "Phone must be in format 0300-1234567"],
     },
 
+    mobile: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
     email: {
       type: String,
       trim: true,
@@ -94,6 +100,11 @@ const SupplierSchema = new mongoose.Schema(
       trim: true,
     },
 
+    openingBalance: {
+      type: Number,
+      default: 0,
+    },
+
     productsSupplied: [
       {
         type: String, // or ObjectId if linked to Product model
@@ -103,15 +114,30 @@ const SupplierSchema = new mongoose.Schema(
     paymentTerms: {
       type: String, // e.g. "Cash", "15 Days", "30 Days"
       default: "Cash",
-    },    
+    },
     status: {
       type: String,
       enum: ["Active", "Inactive", "active", "pending", "inactive"],
       default: "Active",
     },
 
+    preferred: {
+      type: Boolean,
+      default: false,
+    },
+
     notes: {
       type: String,
+    },
+    totalDue: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    lastPurchase: {
+      type: String,
+      trim: true,
+      default: "",
     },
     bills: { type: [billSchema], default: [] },
     paymentHistory: { type: [paymentHistorySchema], default: [] },
