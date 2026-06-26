@@ -120,15 +120,6 @@ const findSupplierBillIndex = (supplier, billId) => {
   });
 };
 
-const getPurchaseRemainingAmount = (purchase = null) =>
-  Math.max(
-    Number(
-      purchase?.balance ??
-        (Number(purchase?.totalAmount || 0) - Number(purchase?.paidAmount || 0))
-    ),
-    0
-  );
-
 const syncSupplierBillWithPurchase = (supplier, purchase, billId = "") => {
   if (!supplier || !purchase) return -1;
 
@@ -401,18 +392,6 @@ const createSupplierPayment = async (req, res) => {
 
     if (billId && linkedPurchase?._id) {
       syncSupplierBillWithPurchase(supplier, linkedPurchase, billId);
-    }
-
-    if (billId) {
-      const billIndex = findSupplierBillIndex(supplier, billId);
-      if (billIndex >= 0) {
-        const targetBill = supplier.bills[billIndex];
-        const billRemaining = Math.max(
-          parseAmount(targetBill?.amount) - parseAmount(targetBill?.paidAmount),
-          0,
-        );
-        const purchaseRemaining = linkedPurchase?._id ? getPurchaseRemainingAmount(linkedPurchase) : billRemaining;
-      }
     }
 
     const paymentRecord = await SupplierPayment.create({

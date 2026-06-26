@@ -3,6 +3,8 @@ import {
   OutdoorSupplier,
   OutdoorSupply,
 } from "../models/outdoorSupplyManagementModel.js";
+import Product from "../models/productModel.js";
+import Sale from "../models/salesModel.js";
 
 const hasField = (body, key) => Object.prototype.hasOwnProperty.call(body, key);
 
@@ -10,6 +12,29 @@ const normalizeObjectId = (value) =>
   mongoose.Types.ObjectId.isValid(String(value || "").trim())
     ? new mongoose.Types.ObjectId(String(value).trim())
     : null;
+
+const startOfDay = (value) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setHours(0, 0, 0, 0);
+  return date;
+};
+
+const endOfDay = (value) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setHours(23, 59, 59, 999);
+  return date;
+};
+
+const normalizeDateKey = (value) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().split("T")[0];
+};
+
+const buildOutdoorSupplySaleInvoiceNo = (supply) =>
+  `OUT-${String(supply?.invoiceNumber || supply?._id || "").trim()}`;
 
 const normalizeOutdoorSupplierPayload = (body = {}, options = {}) => {
   const { partial = false } = options;
@@ -136,6 +161,172 @@ const validateOutdoorSupplyPayload = (payload) => {
 
   return "";
 };
+
+const resolveOutdoorSaleProducts = async (items = []) => {
+  const normalizedItems = Array.isArray(items) ? items : [];
+  const saleProducts = [];
+
+  for (const item of normalizedItems) {
+    const requestedQuantity = Math.max(Number(item?.saleQuantity || 0), 0);
+    if (requestedQuantity <= 0) continue;
+
+    let product = null;
+    const productId = String(item?.productId || "").trim();
+
+    if (mongoose.Types.ObjectId.isValid(productId)) {
+      product = await Product.findById(productId).lean();
+    }
+
+    if (!product) {
+      product = await Product.findOne({
+        name: { $regex: `^${String(item?.productName || "").trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" },
+        manufacturer: { $regex: `^${String(item?.manufacturer || "").trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" },
+      })
+        .sort({ createdAt: 1 })
+        .lean();
+    }
+
+    if (!product?._id) {
+      throw new Error(`Product not found for outdoor supply item: ${item?.productName || "Unknown"}`);
+    }
+
+    saleProducts.push({
+      productId: product._id,
+      name: String(item?.productName || product?.name || "").trim(),
+      quantity: requestedQuantity,
+      returnedQuantity: Math.max(Number(item?.returnedQuantity || 0), 0),
+      purchasePrice: Number(product?.purchasePrice || 0),
+      salePrice: Number(item?.price || product?.salePrice || 0),
+    });
+  }
+
+  if (!saleProducts.length) {
+    throw new Error("No valid outdoor supply items available to create sale");
+  }
+
+  return saleProducts;
+};
+
+const buildOutdoorSupplySalePayload = async (supply) => {
+  const saleProducts = await resolveOutdoorSaleProducts(supply?.items);
+  const totalAmount = Number(
+    saleProducts.reduce((sum, product) => sum + Number(product.quantity || 0) * Number(product.salePrice || 0), 0).toFixed(2)
+  );
+  const saleDate = supply?.supplyDate ? new Date(supply.supplyDate) : new Date();
+
+  return {
+    invoiceNo: buildOutdoorSupplySaleInvoiceNo(supply),
+    customerName: String(supply?.supplierName || "Outdoor Supply").trim() || "Outdoor Supply",
+    customerPhone: "",
+    customerMobile: "",
+    products: saleProducts,
+    subtotal: totalAmount,
+    discount: 0,
+    totalAmount,
+    paidAmount: totalAmount,
+    returnAmount: 0,
+    paymentStatus: "Paid",
+    paymentMethod: "Outdoor Supply",
+    paymentHistory: [
+      {
+        amount: totalAmount,
+        method: "Outdoor Supply",
+        reference: String(supply?.invoiceNumber || "").trim(),
+        date: Number.isNaN(saleDate.getTime()) ? new Date() : saleDate,
+      },
+    ],
+    saleDate: Number.isNaN(saleDate.getTime()) ? new Date() : saleDate,
+    notes: `Outdoor supply invoice ${String(supply?.invoiceNumber || "").trim()}`,
+  };
+};
+
+const syncOutdoorSupplySale = async (supplyDoc) => {
+  const salePayload = await buildOutdoorSupplySalePayload(supplyDoc);
+  const existingSaleId = String(supplyDoc?.createdSaleId || "").trim();
+  let sale = null;
+
+  if (mongoose.Types.ObjectId.isValid(existingSaleId)) {
+    sale = await Sale.findById(existingSaleId);
+  }
+
+  if (sale) {
+    Object.assign(sale, salePayload);
+    await sale.save();
+  } else {
+    sale = await Sale.create(salePayload);
+  }
+
+  supplyDoc.createdSaleId = String(sale?._id || "");
+  supplyDoc.createdSaleInvoiceNo = String(sale?.invoiceNo || "");
+  return sale;
+};
+
+const buildOutdoorSupplyDateQuery = (query = {}) => {
+  const conditions = {};
+  const exactDate = String(query.date || "").trim();
+  const fromDate = String(query.fromDate || "").trim();
+  const toDate = String(query.toDate || "").trim();
+  const supplierId = String(query.supplierId || "").trim();
+
+  if (exactDate) {
+    const start = startOfDay(exactDate);
+    const end = endOfDay(exactDate);
+    if (!start || !end) {
+      throw new Error("Invalid date filter");
+    }
+    conditions.supplyDate = { $gte: start, $lte: end };
+  } else if (fromDate || toDate) {
+    const nextDateQuery = {};
+
+    if (fromDate) {
+      const start = startOfDay(fromDate);
+      if (!start) {
+        throw new Error("Invalid fromDate filter");
+      }
+      nextDateQuery.$gte = start;
+    }
+
+    if (toDate) {
+      const end = endOfDay(toDate);
+      if (!end) {
+        throw new Error("Invalid toDate filter");
+      }
+      nextDateQuery.$lte = end;
+    }
+
+    conditions.supplyDate = nextDateQuery;
+  }
+
+  if (supplierId && mongoose.Types.ObjectId.isValid(supplierId)) {
+    conditions.supplierId = new mongoose.Types.ObjectId(supplierId);
+  }
+
+  return conditions;
+};
+
+const groupOutdoorSuppliesByDate = (supplies = []) =>
+  Object.entries(
+    (Array.isArray(supplies) ? supplies : []).reduce((acc, supply) => {
+      const dateKey = normalizeDateKey(supply?.supplyDate);
+      if (!dateKey) return acc;
+
+      if (!acc[dateKey]) {
+        acc[dateKey] = {
+          date: dateKey,
+          count: 0,
+          totalBill: 0,
+          supplies: [],
+        };
+      }
+
+      acc[dateKey].count += 1;
+      acc[dateKey].totalBill = Number((acc[dateKey].totalBill + Number(supply?.totalBill || 0)).toFixed(2));
+      acc[dateKey].supplies.push(supply);
+      return acc;
+    }, {})
+  )
+    .sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime())
+    .map(([, value]) => value);
 
 const getOutdoorSuppliers = async (req, res) => {
   try {
@@ -278,17 +469,20 @@ const deleteOutdoorSupplier = async (req, res) => {
 
 const getOutdoorSupplies = async (req, res) => {
   try {
-    const supplies = await OutdoorSupply.find()
+    const filters = buildOutdoorSupplyDateQuery(req.query);
+    const supplies = await OutdoorSupply.find(filters)
       .populate("supplierId", "supplierName phoneNo gariNo routeName monthlyPay commission")
       .sort({ supplyDate: -1, createdAt: -1 });
 
     res.status(200).json({
       success: true,
       count: supplies.length,
+      datewiseSupplies: groupOutdoorSuppliesByDate(supplies),
       data: supplies,
     });
   } catch (error) {
-    res.status(500).json({
+    const statusCode = error?.message?.includes("Invalid") ? 400 : 500;
+    res.status(statusCode).json({
       success: false,
       message: "Failed to fetch outdoor supplies",
       error: error.message,
@@ -324,6 +518,9 @@ const getOutdoorSupplyById = async (req, res) => {
 };
 
 const createOutdoorSupply = async (req, res) => {
+  let supply = null;
+  let createdSaleId = "";
+
   try {
     const payload = normalizeOutdoorSupplyPayload(req.body);
     const validationMessage = validateOutdoorSupplyPayload(payload);
@@ -337,11 +534,15 @@ const createOutdoorSupply = async (req, res) => {
       return res.status(404).json({ success: false, message: "Outdoor supplier not found" });
     }
 
-    const supply = await OutdoorSupply.create({
+    supply = await OutdoorSupply.create({
       ...payload,
       supplierName: payload.supplierName || supplier.supplierName,
       routeName: payload.routeName || supplier.routeName,
     });
+
+    await syncOutdoorSupplySale(supply);
+    createdSaleId = String(supply.createdSaleId || "").trim();
+    await supply.save();
 
     res.status(201).json({
       success: true,
@@ -349,6 +550,18 @@ const createOutdoorSupply = async (req, res) => {
       data: supply,
     });
   } catch (error) {
+    if (supply?._id) {
+      try {
+        await OutdoorSupply.findByIdAndDelete(supply._id);
+      } catch {}
+    }
+
+    if (mongoose.Types.ObjectId.isValid(createdSaleId)) {
+      try {
+        await Sale.findByIdAndDelete(createdSaleId);
+      } catch {}
+    }
+
     const statusCode = error?.code === 11000 ? 400 : 400;
     const message =
       error?.code === 11000
@@ -397,6 +610,7 @@ const updateOutdoorSupply = async (req, res) => {
       existingSupply.routeName = supplier.routeName;
     }
 
+    await syncOutdoorSupplySale(existingSupply);
     await existingSupply.save();
 
     res.status(200).json({
