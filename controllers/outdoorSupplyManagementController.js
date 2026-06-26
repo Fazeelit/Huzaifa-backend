@@ -240,13 +240,70 @@ const buildOutdoorSupplySalePayload = async (supply) => {
   };
 };
 
+const buildOutdoorSupplySaleMetadataPatch = (supply, existingSale = null) => {
+  const saleDate = supply?.supplyDate ? new Date(supply.supplyDate) : new Date();
+  const nextSaleDate = Number.isNaN(saleDate.getTime()) ? new Date() : saleDate;
+  const invoiceNo = buildOutdoorSupplySaleInvoiceNo(supply);
+  const reference = String(supply?.invoiceNumber || "").trim();
+  const currentHistory = Array.isArray(existingSale?.paymentHistory) ? existingSale.paymentHistory : [];
+  const amountFromHistory = Number(currentHistory[0]?.amount || 0);
+  const fallbackAmount = Number(existingSale?.totalAmount || amountFromHistory || supply?.totalBill || 0);
+
+  return {
+    invoiceNo,
+    customerName: String(supply?.supplierName || existingSale?.customerName || "Outdoor Supply").trim() || "Outdoor Supply",
+    paymentMethod: existingSale?.paymentMethod || "Outdoor Supply",
+    saleDate: nextSaleDate,
+    notes: `Outdoor supply invoice ${reference}`,
+    paymentHistory: currentHistory.length
+      ? currentHistory.map((entry, index) =>
+          index === 0
+            ? {
+                ...entry,
+                amount: Number(entry?.amount || fallbackAmount),
+                method: entry?.method || "Outdoor Supply",
+                reference,
+                date: nextSaleDate,
+              }
+            : entry
+        )
+      : [
+          {
+            amount: fallbackAmount,
+            method: "Outdoor Supply",
+            reference,
+            date: nextSaleDate,
+          },
+        ],
+  };
+};
+
 const syncOutdoorSupplySale = async (supplyDoc) => {
-  const salePayload = await buildOutdoorSupplySalePayload(supplyDoc);
   const existingSaleId = String(supplyDoc?.createdSaleId || "").trim();
+  const existingSaleInvoiceNo = String(supplyDoc?.createdSaleInvoiceNo || "").trim();
+  const derivedInvoiceNo = buildOutdoorSupplySaleInvoiceNo(supplyDoc);
   let sale = null;
 
   if (mongoose.Types.ObjectId.isValid(existingSaleId)) {
     sale = await Sale.findById(existingSaleId);
+  }
+
+  if (!sale && existingSaleInvoiceNo) {
+    sale = await Sale.findOne({ invoiceNo: existingSaleInvoiceNo });
+  }
+
+  if (!sale && derivedInvoiceNo) {
+    sale = await Sale.findOne({ invoiceNo: derivedInvoiceNo });
+  }
+
+  let salePayload = null;
+  try {
+    salePayload = await buildOutdoorSupplySalePayload(supplyDoc);
+  } catch (error) {
+    if (!sale) {
+      throw error;
+    }
+    salePayload = buildOutdoorSupplySaleMetadataPatch(supplyDoc, sale);
   }
 
   if (sale) {
@@ -610,13 +667,22 @@ const updateOutdoorSupply = async (req, res) => {
       existingSupply.routeName = supplier.routeName;
     }
 
-    await syncOutdoorSupplySale(existingSupply);
     await existingSupply.save();
+    
+    let saleSyncWarning = "";
+    try {
+      await syncOutdoorSupplySale(existingSupply);
+      await existingSupply.save();
+    } catch (saleSyncError) {
+      saleSyncWarning = saleSyncError?.message || "Outdoor supply sale sync failed";
+      console.error("OUTDOOR SUPPLY SALE SYNC ERROR:", saleSyncError);
+    }
 
     res.status(200).json({
       success: true,
       message: "Outdoor supply updated successfully",
       data: existingSupply,
+      ...(saleSyncWarning ? { warning: saleSyncWarning } : {}),
     });
   } catch (error) {
     const message =
