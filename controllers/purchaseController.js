@@ -280,14 +280,6 @@ const recordPurchasePayment = async (req, res) => {
       return res.status(404).json({ success: false, message: "Purchase not found" });
     }
 
-    const remaining = Math.max(Number(purchase.totalAmount || 0) - Number(purchase.paidAmount || 0), 0);
-    if (paidAmount > remaining) {
-      return res.status(400).json({
-        success: false,
-        message: "Paid amount cannot exceed remaining amount",
-      });
-    }
-
     const paymentRecord = await SupplierPayment.create({
       supplier: purchase.supplier,
       paidAmount,
@@ -446,4 +438,3 @@ export {
   deletePurchase,
   getPurchaseList,
 };
-

@@ -404,11 +404,6 @@ const paySupplierBill = async (req, res) => {
 
     const billAmount = parseAmount(targetBill.amount);
     const currentPaid = parseAmount(targetBill.paidAmount);
-    const remainingAmount = Math.max(billAmount - currentPaid, 0);
-
-    if (paidAmount > remainingAmount) {
-      return res.status(400).json({ success: false, message: "Paid amount cannot exceed remaining amount" });
-    }
 
     const nextPaid = currentPaid + paidAmount;
     targetBill.paidAmount = formatRs(nextPaid);

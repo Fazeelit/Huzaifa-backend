@@ -748,14 +748,6 @@ const recordSalePayment = async (req, res) => {
       return res.status(404).json({ success: false, message: "Sale not found" });
     }
 
-    const remainingAmount = Math.max(Number(sale.totalAmount || 0) - Number(sale.paidAmount || 0), 0);
-    if (paidAmount > remainingAmount) {
-      return res.status(400).json({
-        success: false,
-        message: "Paid amount cannot exceed remaining amount",
-      });
-    }
-
     sale.paidAmount = Number((Number(sale.paidAmount || 0) + paidAmount).toFixed(2));
     sale.paymentStatus = derivePaymentStatus(sale.paidAmount, sale.totalAmount);
     sale.paymentMethod = paymentMethod;

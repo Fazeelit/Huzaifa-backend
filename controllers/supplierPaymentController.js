@@ -182,10 +182,6 @@ const applyPaymentToSupplierBill = (supplier, billId, paidAmount, paymentMeta) =
   const currentPaid = parseAmount(targetBill?.paidAmount);
   const remaining = Math.max(billAmount - currentPaid, 0);
 
-  if (paidAmount > remaining) {
-    throw new Error(`Paid amount cannot exceed remaining amount (${remaining})`);
-  }
-
   const nextPaid = currentPaid + paidAmount;
   supplier.bills[billIndex] = {
     ...(targetBill.toObject?.() ?? targetBill),
@@ -416,13 +412,6 @@ const createSupplierPayment = async (req, res) => {
           0,
         );
         const purchaseRemaining = linkedPurchase?._id ? getPurchaseRemainingAmount(linkedPurchase) : billRemaining;
-        const allowedRemaining = Math.max(billRemaining, purchaseRemaining);
-        if (paidAmount > allowedRemaining) {
-          return res.status(400).json({
-            success: false,
-            message: `Paid amount cannot exceed remaining amount (${allowedRemaining})`,
-          });
-        }
       }
     }
 
