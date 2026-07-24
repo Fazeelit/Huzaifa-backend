@@ -33,6 +33,18 @@ function parseMongoSrvUri(uri) {
   };
 }
 
+function assertAtlasMongoUri(uri) {
+  const parsed = new URL(uri);
+
+  if (parsed.protocol !== "mongodb+srv:") {
+    throw new Error("MONGO_URI must use a MongoDB Atlas mongodb+srv connection string.");
+  }
+
+  if (!/\.mongodb\.net$/i.test(parsed.hostname)) {
+    throw new Error("MONGO_URI must point to a MongoDB Atlas cluster host.");
+  }
+}
+
 function ensureSafeHostname(hostname) {
   if (!/^[a-zA-Z0-9.-]+$/.test(hostname)) {
     throw new Error("MongoDB hostname contains unsupported characters.");
@@ -193,6 +205,7 @@ const dbConnect = async () => {
   }
 
   try {
+    assertAtlasMongoUri(process.env.MONGO_URI);
     await connectWithAtlasFallback(process.env.MONGO_URI);
     attachConnectionListeners();
     console.log("MongoDB connected successfully");

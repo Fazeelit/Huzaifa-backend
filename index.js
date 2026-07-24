@@ -133,24 +133,24 @@ function isAllowedOrigin(origin) {
   }
 }
 
-// ------------------ CORS ------------------
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      if (isAllowedOrigin(origin)) {
-        return callback(null, true);
-      }
+const corsOptions = {
+  origin: function (origin, callback) {
+    if (isAllowedOrigin(origin)) {
+      return callback(null, true);
+    }
 
-      return callback(new Error("Not allowed by CORS"));
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
+    return callback(new Error("Not allowed by CORS"));
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+};
+
+// ------------------ CORS ------------------
+app.use(cors(corsOptions));
 
 // Express 5 compatible preflight handler
-app.options(/.*/, cors());
+app.options(/.*/, cors(corsOptions));
 
 // ------------------ Middleware ------------------
 app.use(express.json({ limit: "15mb" }));

@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "reset-password": "node scripts/resetUserPassword.js"
+    "reset-password": "node scripts/resetUserPassword.js",
+    "ensure-user": "node scripts/ensureUser.js"
   },
   "dependencies": {
     "axios": "^1.13.2",
