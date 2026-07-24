@@ -55,13 +55,80 @@ function serializeUser(user, permissions = []) {
 }
 
 function sendAuthError(res, status, message, reason) {
-  const payload = { message, reason };
+  const payload = {
+    success: false,
+    message,
+    reason,
+    category: status >= 500 ? "backend" : status >= 400 && status < 500 ? "auth" : "unknown",
+  };
 
   if (process.env.NODE_ENV !== "production") {
     payload.debug = reason;
   }
 
   return res.status(status).json(payload);
+}
+
+function sendValidationError(res, message, reason) {
+  return res.status(400).json({
+    success: false,
+    message,
+    reason,
+    category: "validation",
+  });
+}
+
+function sendLoginServerError(res, error) {
+  const payload = {
+    success: false,
+    message: "Unable to sign in right now. Please verify the server and database connection, then try again.",
+    reason: "auth_service_error",
+    category: "backend",
+  };
+
+  if (process.env.NODE_ENV !== "production") {
+    payload.error = error.message;
+  }
+
+  return res.status(500).json(payload);
+}
+
+function validatePasswordInput(password, { required = true } = {}) {
+  if (password === undefined || password === null || password === "") {
+    if (required) {
+      return {
+        isValid: false,
+        message: "Password is required.",
+        reason: "password_required",
+      };
+    }
+
+    return {
+      isValid: true,
+      normalizedPassword: undefined,
+    };
+  }
+
+  if (typeof password !== "string") {
+    return {
+      isValid: false,
+      message: "Password must be a string.",
+      reason: "password_invalid_type",
+    };
+  }
+
+  if (password.length < 6) {
+    return {
+      isValid: false,
+      message: "Password must be at least 6 characters long.",
+      reason: "password_too_short",
+    };
+  }
+
+  return {
+    isValid: true,
+    normalizedPassword: password,
+  };
 }
 
 function normalizeStoredPassword(password) {
@@ -118,8 +185,9 @@ const createUser = async (req, res) => {
       return res.status(400).json({ message: "Email is required and must be a string." });
     }
 
-    if (!password || typeof password !== "string") {
-      return res.status(400).json({ message: "Password is required and must be a string." });
+    const passwordValidation = validatePasswordInput(password);
+    if (!passwordValidation.isValid) {
+      return sendValidationError(res, passwordValidation.message, passwordValidation.reason);
     }
 
     const normalizedEmail = String(email).trim().toLowerCase();
@@ -130,7 +198,7 @@ const createUser = async (req, res) => {
       return res.status(409).json({ message: "Email already exists." });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(passwordValidation.normalizedPassword, 10);
 
     const newUser = await User.create({
       name: String(name).trim(),
@@ -176,8 +244,9 @@ const loginUser = async (req, res) => {
       return res.status(400).json({ message: "Email is required and must be a string." });
     }
 
-    if (!password || typeof password !== "string") {
-      return res.status(400).json({ message: "Password is required and must be a string." });
+    const passwordValidation = validatePasswordInput(password);
+    if (!passwordValidation.isValid) {
+      return sendValidationError(res, passwordValidation.message, passwordValidation.reason);
     }
 
     const user = await User.findOne({ email: normalizedEmail });
@@ -227,7 +296,7 @@ const loginUser = async (req, res) => {
 
     const loginUpdate = { lastLogin: new Date() };
     if (shouldUpgradePasswordHash) {
-      loginUpdate.password = await bcrypt.hash(password, 10);
+      loginUpdate.password = await bcrypt.hash(passwordValidation.normalizedPassword, 10);
     }
 
     await User.updateOne({ _id: user._id }, { $set: loginUpdate }, { runValidators: false });
@@ -242,7 +311,7 @@ const loginUser = async (req, res) => {
     });
   } catch (error) {
     console.error("Login Error:", error);
-    return res.status(500).json({ message: "Server error", error: error.message });
+    return sendLoginServerError(res, error);
   }
 };
 
@@ -310,8 +379,14 @@ const updateUser = async (req, res) => {
     if (req.body.phone !== undefined) updates.phone = String(req.body.phone || "").trim();
     if (req.body.department !== undefined) updates.department = String(req.body.department || "").trim();
     if (req.body.status) updates.status = normalizeUserStatus(req.body.status);
-    if (req.body.password) {
-      updates.password = await bcrypt.hash(req.body.password, 10);
+    if (Object.prototype.hasOwnProperty.call(req.body, "password")) {
+      const passwordValidation = validatePasswordInput(req.body.password, { required: false });
+      if (!passwordValidation.isValid) {
+        return sendValidationError(res, passwordValidation.message, passwordValidation.reason);
+      }
+      if (passwordValidation.normalizedPassword !== undefined) {
+        updates.password = await bcrypt.hash(passwordValidation.normalizedPassword, 10);
+      }
     }
     if (Object.prototype.hasOwnProperty.call(req.body, "role")) {
       if (!String(req.body.role || "").trim()) {
