@@ -54,6 +54,16 @@ function serializeUser(user, permissions = []) {
   };
 }
 
+function sendAuthError(res, status, message, reason) {
+  const payload = { message, reason };
+
+  if (process.env.NODE_ENV !== "production") {
+    payload.debug = reason;
+  }
+
+  return res.status(status).json(payload);
+}
+
 const createUser = async (req, res) => {
   try {
     const {
@@ -139,11 +149,16 @@ const loginUser = async (req, res) => {
 
     const user = await User.findOne({ email: normalizedEmail });
     if (!user) {
-      return res.status(401).json({ message: "Invalid email or password." });
+      return sendAuthError(res, 401, "Invalid email or password.", "user_not_found");
     }
 
     if (user.status !== "Active") {
-      return res.status(403).json({ message: `Your account is ${user.status}. Please contact admin.` });
+      return sendAuthError(
+        res,
+        403,
+        `Your account is ${user.status}. Please contact admin.`,
+        "inactive_user"
+      );
     }
 
     const hasHashedPassword =
@@ -159,12 +174,17 @@ const loginUser = async (req, res) => {
     }
 
     if (!isMatch) {
-      return res.status(401).json({ message: "Invalid email or password." });
+      return sendAuthError(res, 401, "Invalid email or password.", "invalid_password");
     }
 
     const normalizedRole = normalizeRoleKey(user.role);
     if (selectedRole && selectedRole !== normalizedRole) {
-      return res.status(401).json({ message: "Selected role does not match your account role." });
+      return sendAuthError(
+        res,
+        401,
+        "Selected role does not match your account role.",
+        "role_mismatch"
+      );
     }
 
     const permissions = await getRolePermissions(normalizedRole);

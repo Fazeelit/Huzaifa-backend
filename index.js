@@ -25,6 +25,10 @@ import Role from "./models/roleModel.js";
 import { SCHOOL_PERMISSION_KEYS } from "./constants/accessControl.js";
 
 const app = express();
+const explicitAllowedOrigins = new Set([
+  "http://localhost:3000",
+  "http://localhost:3000/",
+]);
 
 const DEFAULT_ROLE_SEED = [
   {
@@ -105,6 +109,10 @@ configuredOriginHosts.add(process.env.ELECTRON_APP_HOST || "192.168.100.78");
 
 function isAllowedOrigin(origin) {
   if (!origin) {
+    return true;
+  }
+
+  if (explicitAllowedOrigins.has(origin)) {
     return true;
   }
 
