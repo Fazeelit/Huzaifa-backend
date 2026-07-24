@@ -69,6 +69,9 @@ function sendAuthError(res, status, message, reason) {
   return res.status(status).json(payload);
 }
 
+const INVALID_LOGIN_MESSAGE =
+  "Invalid email or password. Double-check your email, password, and selected role.";
+
 function sendValidationError(res, message, reason) {
   return res.status(400).json({
     success: false,
@@ -251,7 +254,7 @@ const loginUser = async (req, res) => {
 
     const user = await User.findOne({ email: normalizedEmail });
     if (!user) {
-      return sendAuthError(res, 401, "Invalid email or password.", "user_not_found");
+      return sendAuthError(res, 401, INVALID_LOGIN_MESSAGE, "user_not_found");
     }
 
     if (user.status !== "Active") {
@@ -269,7 +272,7 @@ const loginUser = async (req, res) => {
     );
 
     if (!isMatch) {
-      return sendAuthError(res, 401, "Invalid email or password.", "invalid_password");
+      return sendAuthError(res, 401, INVALID_LOGIN_MESSAGE, "invalid_password");
     }
 
     const normalizedRole = normalizeRoleKey(user.role);
