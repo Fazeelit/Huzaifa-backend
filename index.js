@@ -1,152 +1,185 @@
+// server.js
 import express from "express";
 import morgan from "morgan";
 import cors from "cors";
 import http from "http";
-import "./config/loadEnv.js";
 
 // ------------------ Database ------------------
 import dbConnect from "./config/database.js";
-dbConnect();
 
 // ------------------ Config ------------------
 import config from "./config/config.js";
 
 // ------------------ Routes ------------------
-import productRoutes from "./routes/productsRoutes.js";
-import purchaseRoutes from "./routes/purchaseRoutes.js";
-import salesRoutes from "./routes/salesRoutes.js";
-import expenseRoutes from "./routes/expenseRoutes.js";
 import userManagementRoutes from "./routes/UserManagementRoutes.js";
 import roleRoutes from "./routes/RoleRoutes.js";
-import supplierRoutes from "./routes/supplierRoutes.js";
-import supplierPaymentRoutes from "./routes/supplierPaymentRoutes.js";
-import customerPaymentRoutes from "./routes/customerPaymentRoutes.js";
-import inventoryRoutes from "./routes/inventoryRoutes.js";
-import customerRoutes from "./routes/customerRoutes.js";
-import outdoorSupplyManagementRoutes from "./routes/outdoorSupplyManagementRoutes.js";
+import teacherRoutes from "./routes/teacherRoute.js";
+import classRoutes from "./routes/classRoute.js";
+import studentRoutes from "./routes/studentRoute.js";
+import resultRoutes from "./routes/resultRoute.js";
+import feeRoutes from "./routes/feeRoute.js";
+import attendanceRoutes from "./routes/attendanceRoute.js";
+import timetableRoutes from "./routes/timetableRoute.js";
+import expenseRoutes from "./routes/expenseRoute.js";
+import Role from "./models/roleModel.js";
+import { SCHOOL_PERMISSION_KEYS } from "./constants/accessControl.js";
 
 const app = express();
 
-/*
-=====================================================
- CORS Middleware (LAN Safe Production Version)
-=====================================================
-*/
-// ------------------ CORS Setup ------------------
-const normalizeOrigin = (origin) => String(origin || "").trim().replace(/\/+$/, "");
-
-const defaultAllowedOrigins = [
-  "http://localhost:3000",
-  "http://localhost:3001",
-  "http://127.0.0.1:3000",
-  "http://127.0.0.1:3001",
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",
-  "https://huzaifa-autoz01-feroza.vercel.app",
+const DEFAULT_ROLE_SEED = [
+  {
+    role: "ADMIN",
+    description: "Full system access for school administration.",
+    permissions: SCHOOL_PERMISSION_KEYS,
+    status: "ACTIVE",
+  },
+  {
+    role: "CLERK",
+    description: "Can manage daily school office tasks and operational records.",
+    permissions: ["DASHBOARD_VIEW", "CLASSES_VIEW", "STUDENTS_VIEW", "FEES_VIEW", "ATTENDANCE_VIEW"],
+    status: "ACTIVE",
+  },
+  {
+    role: "PRINCIPAL",
+    description: "Can supervise school operations and review administrative reports.",
+    permissions: SCHOOL_PERMISSION_KEYS,
+    status: "ACTIVE",
+  },
+  {
+    role: "TEACHERS",
+    description: "Can access teacher-related workflows and assigned academic tasks.",
+    permissions: ["DASHBOARD_VIEW", "STUDENTS_VIEW", "RESULTS_VIEW", "ATTENDANCE_VIEW", "TIMETABLE_VIEW"],
+    status: "ACTIVE",
+  },
+  {
+    role: "STUDENTS",
+    description: "Can access student-related records and limited academic features.",
+    permissions: ["DASHBOARD_VIEW", "RESULTS_VIEW", "FEES_VIEW", "ATTENDANCE_VIEW", "TIMETABLE_VIEW"],
+    status: "ACTIVE",
+  },
 ];
 
-const allowedOrigins = new Set(
-  [...defaultAllowedOrigins, ...config.webAppUrl]
+async function ensureDefaultRoles() {
+  try {
+    for (const roleData of DEFAULT_ROLE_SEED) {
+      await Role.updateOne(
+        { role: roleData.role },
+        { $setOnInsert: roleData },
+        { upsert: true }
+      );
+    }
+  } catch (error) {
+    console.error("Failed to seed default roles:", error);
+  }
+}
+
+async function loadOptionalRoute(modulePath, label) {
+  try {
+    const module = await import(modulePath);
+    return module.default;
+  } catch (error) {
+    if (error?.code === "ERR_MODULE_NOT_FOUND") {
+      console.warn(`Optional route skipped: ${label} (${modulePath})`);
+      return null;
+    }
+    throw error;
+  }
+}
+
+
+const configuredOriginHosts = new Set(
+  (config.webAppUrl || [])
+    .map((value) => {
+      try {
+        return new URL(value).hostname;
+      } catch {
+        return null;
+      }
+    })
     .filter(Boolean)
-    .map(normalizeOrigin),
 );
 
-const isAllowedOrigin = (origin) => {
-  const normalizedOrigin = normalizeOrigin(origin);
+configuredOriginHosts.add("localhost");
+configuredOriginHosts.add("127.0.0.1");
+configuredOriginHosts.add(process.env.ELECTRON_APP_HOST || "192.168.100.78");
 
-  if (allowedOrigins.has(normalizedOrigin)) {
+function isAllowedOrigin(origin) {
+  if (!origin) {
     return true;
   }
 
-  // Allow Vercel preview deployments for the same app family.
-  return /^https:\/\/huzaifa-autos(?:-.*)?\.vercel\.app$/i.test(normalizedOrigin);
-};
+  try {
+    const { hostname } = new URL(origin);
 
+    if (configuredOriginHosts.has(hostname) || origin.endsWith(".vercel.app")) {
+      return true;
+    }
+
+    if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname)) {
+      return true;
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+// ------------------ CORS ------------------
 app.use(
   cors({
-    origin(origin, callback) {
-      // Allow server-to-server requests and same-origin tools with no Origin header.
-      if (!origin) {
-        return callback(null, true);
-      }
-
+    origin: function (origin, callback) {
       if (isAllowedOrigin(origin)) {
         return callback(null, true);
       }
 
-      console.error(`Blocked by CORS: ${origin}`);
       return callback(new Error("Not allowed by CORS"));
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
-  }),
+  })
 );
 
-/*
-=====================================================
- Express Middleware
-=====================================================
-*/
+// Express 5 compatible preflight handler
+app.options(/.*/, cors());
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// ------------------ Middleware ------------------
+app.use(express.json({ limit: "15mb" }));
+app.use(express.urlencoded({ extended: true, limit: "15mb" }));
 
 if (process.env.NODE_ENV === "development") {
   app.use(morgan("dev"));
 }
 
-/*
-=====================================================
- Root Route
-=====================================================
-*/
-
+// ------------------ Root Route ------------------
 app.get("/", (req, res) => {
-  res.send("Backend is running");
+  res.send("Backend is running!");
 });
 
-app.get("/api", (req, res) => {
-  res.json({ message: "API is running" });
-});
-
-/*
-=====================================================
- API Routes
-=====================================================
-*/
-
+// ------------------ API Routes ------------------
 app.use("/api/user-management", userManagementRoutes);
-app.use("/api/products", productRoutes);
-app.use("/api/purchases", purchaseRoutes);
-app.use("/api/sales", salesRoutes);
-app.use("/api/expenses", expenseRoutes);
+app.use("/api/users", userManagementRoutes);
 app.use("/api/roles", roleRoutes);
-app.use("/api/suppliers", supplierRoutes);
-app.use("/api/supplierpayments", supplierPaymentRoutes);
-app.use("/api/customerpayments", customerPaymentRoutes);
-app.use("/api/inventory", inventoryRoutes);
-app.use("/api/customers", customerRoutes);
-app.use("/api/outdoor-supply-management", outdoorSupplyManagementRoutes);
+app.use("/api/role-management", roleRoutes);
+app.use("/api/teachers", teacherRoutes);
+app.use("/api/classes", classRoutes);
+app.use("/api/students", studentRoutes);
+app.use("/api/results", resultRoutes);
+app.use("/api/fees", feeRoutes);
+app.use("/api/attendance", attendanceRoutes);
+app.use("/api/timetables", timetableRoutes);
+app.use("/api/expenses", expenseRoutes);
 
-/*
-=====================================================
- 404 API Handler
-=====================================================
-*/
 
-app.all(/^\/api\/.*/, (req, res) => {
+// ------------------ 404 API Handler ------------------
+app.all(/^\/api\/.*$/, (req, res) => {
   res.status(404).json({ message: "API route not found" });
 });
 
-/*
-=====================================================
- Global Error Handler
-=====================================================
-*/
-
+// ------------------ Global Error Handler ------------------
 app.use((err, req, res, next) => {
-  console.error("Server Error:", err.message);
+  console.error("Error:", err);
 
   if (err.message === "Not allowed by CORS") {
     return res.status(403).json({ message: err.message });
@@ -157,19 +190,70 @@ app.use((err, req, res, next) => {
   });
 });
 
-/*
-=====================================================
- Server Start
-=====================================================
-*/
-
+// ------------------ Server ------------------
 const PORT = config.port || 8080;
 const HOST = "0.0.0.0";
+const isDevRuntime = process.env.NODE_ENV === "development" || process.env.npm_lifecycle_event === "dev";
 
 const server = http.createServer(app);
 
+// Optional: increase timeout
 server.timeout = 5 * 60 * 1000;
 
-server.listen(PORT, HOST, () => {
-  console.log(`Server running at http://${HOST}:${PORT}`);
+function listenOnPort(port) {
+  return new Promise((resolve, reject) => {
+    const handleListening = () => {
+      server.off("error", handleError);
+      resolve(port);
+    };
+
+    const handleError = (error) => {
+      server.off("listening", handleListening);
+      reject(error);
+    };
+
+    server.once("listening", handleListening);
+    server.once("error", handleError);
+    server.listen(port, HOST);
+  });
+}
+
+async function startServer() {
+  const maxPortAttempts = isDevRuntime ? 10 : 1;
+
+  for (let attempt = 0; attempt < maxPortAttempts; attempt += 1) {
+    const port = Number(PORT) + attempt;
+
+    try {
+      return await listenOnPort(port);
+    } catch (error) {
+      if (error?.code === "EADDRINUSE" && attempt < maxPortAttempts - 1) {
+        console.warn(`Port ${port} is already in use. Retrying on ${port + 1}.`);
+        continue;
+      }
+
+      throw error;
+    }
+  }
+}
+
+async function bootstrap() {
+  const isDatabaseConnected = await dbConnect();
+
+  if (isDatabaseConnected) {
+    await ensureDefaultRoles();
+  } else {
+    console.warn("Skipping default role seeding because MongoDB is unavailable.");
+  }
+
+  const activePort = await startServer();
+  console.log(`Server running at http://192.168.100.78:${activePort}`);
+  if (!isDatabaseConnected) {
+    console.warn("API started without MongoDB. Database-backed routes will fail until the connection issue is resolved.");
+  }
+}
+
+bootstrap().catch((error) => {
+  console.error("Server bootstrap failed:", error);
+  process.exit(1);
 });

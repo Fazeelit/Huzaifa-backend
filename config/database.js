@@ -1,70 +1,179 @@
 import mongoose from "mongoose";
+import dotenv from "dotenv";
+import dns from "node:dns/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
-const LOCAL_MONGO_URI = "mongodb://127.0.0.1:27017/huzaif-Autos";
+dotenv.config();
 
-const normalizeMongoUri = (uri) =>
-  uri?.replace(/^(mongodb(?:\+srv)?:\/\/[^/]+)\/+/, "$1/");
+const execFileAsync = promisify(execFile);
+let listenersAttached = false;
 
-const getMongoUri = () =>
-  normalizeMongoUri(
-    process.env.MONGO_DIRECT_URI ||
-      process.env.MONGO_URI ||
-      LOCAL_MONGO_URI,
-  );
+function isSrvLookupError(error) {
+  return error?.code === "ECONNREFUSED" && error?.syscall === "querySrv";
+}
 
-const maskMongoUri = (uri) =>
-  uri?.replace(/:\/\/([^:]+):([^@]+)@/, "://$1:***@");
+function isTxtLookupError(error) {
+  return error?.code === "ECONNREFUSED" && error?.syscall === "queryTxt";
+}
 
-const isSrvResolutionError = (error) =>
-  /querySrv|ECONNREFUSED/i.test(String(error?.message || ""));
+function parseMongoSrvUri(uri) {
+  const parsed = new URL(uri);
 
-const getMongoDbName = (uri) => {
-  try {
-    const parsedUrl = new URL(uri);
-    const dbName = parsedUrl.pathname.replace(/^\/+/, "").trim();
-    return dbName || undefined;
-  } catch {
-    return undefined;
-  }
-};
-
-const buildDirectAtlasUri = (uri) => {
-  if (!uri?.startsWith("mongodb+srv://")) {
-    return null;
+  if (parsed.protocol !== "mongodb+srv:") {
+    throw new Error("Only mongodb+srv URIs can be converted to a direct Atlas URI.");
   }
 
-  try {
-    const parsedUrl = new URL(uri);
-    const databaseName = parsedUrl.pathname.replace(/^\/+/, "").trim();
-    const username = parsedUrl.username;
-    const password = parsedUrl.password;
-    const hostParts = parsedUrl.hostname.split(".");
+  return {
+    username: parsed.username,
+    password: parsed.password,
+    hostname: parsed.hostname,
+    databaseName: parsed.pathname.replace(/^\//, ""),
+    searchParams: new URLSearchParams(parsed.search),
+  };
+}
 
-    if (hostParts.length < 3) {
-      return null;
+function ensureSafeHostname(hostname) {
+  if (!/^[a-zA-Z0-9.-]+$/.test(hostname)) {
+    throw new Error("MongoDB hostname contains unsupported characters.");
+  }
+
+  return hostname;
+}
+
+async function resolveSrvViaPowerShell(hostname) {
+  const safeHostname = ensureSafeHostname(hostname);
+  const command = [
+    "$records = Resolve-DnsName -Type SRV",
+    `'` + `_mongodb._tcp.${safeHostname}` + `'`,
+    "-ErrorAction Stop;",
+    "$records | Select-Object NameTarget,Port,Priority,Weight | ConvertTo-Json -Compress",
+  ].join(" ");
+  const { stdout } = await execFileAsync("powershell", [
+    "-NoProfile",
+    "-Command",
+    command,
+  ]);
+  const parsed = JSON.parse(stdout);
+  return Array.isArray(parsed) ? parsed : [parsed];
+}
+
+async function resolveTxtViaPowerShell(hostname) {
+  const safeHostname = ensureSafeHostname(hostname);
+  const command = [
+    "$records = Resolve-DnsName -Type TXT",
+    `'` + safeHostname + `'`,
+    "-ErrorAction SilentlyContinue;",
+    "$strings = @();",
+    "foreach ($record in $records) { $strings += $record.Strings }",
+    "$strings | ConvertTo-Json -Compress",
+  ].join(" ");
+  const { stdout } = await execFileAsync("powershell", [
+    "-NoProfile",
+    "-Command",
+    command,
+  ]);
+
+  if (!stdout.trim()) {
+    return [];
+  }
+
+  const parsed = JSON.parse(stdout);
+  return Array.isArray(parsed) ? parsed : [parsed];
+}
+
+async function resolveSrvRecords(hostname) {
+  const srvName = `_mongodb._tcp.${hostname}`;
+
+  try {
+    return await dns.resolveSrv(srvName);
+  } catch (error) {
+    if (process.platform === "win32" && isSrvLookupError(error)) {
+      return resolveSrvViaPowerShell(hostname);
     }
 
-    const clusterName = hostParts[0];
-    const domainSuffix = hostParts.slice(1).join(".");
-    const directHosts = [0, 1, 2]
-      .map((index) => `${clusterName}-shard-00-0${index}.${domainSuffix}:27017`)
-      .join(",");
-
-    const authPart =
-      username || password ? `${username}:${password}@` : "";
-    const dbPath = databaseName ? `/${databaseName}` : "/";
-
-    return normalizeMongoUri(
-      `mongodb://${authPart}${directHosts}${dbPath}?tls=true&authSource=admin&retryWrites=true&w=majority`,
-    );
-  } catch {
-    return null;
+    throw error;
   }
-};
+}
 
-const registerConnectionLogging = () => {
-  mongoose.connection.removeAllListeners("error");
-  mongoose.connection.removeAllListeners("disconnected");
+async function resolveTxtRecords(hostname) {
+  try {
+    return await dns.resolveTxt(hostname);
+  } catch (error) {
+    if (error?.code === "ENODATA" || error?.code === "ENOTFOUND") {
+      return [];
+    }
+
+    if (process.platform === "win32" && (isSrvLookupError(error) || isTxtLookupError(error))) {
+      return resolveTxtViaPowerShell(hostname);
+    }
+
+    throw error;
+  }
+}
+
+function buildDirectMongoUri(srvUri, srvRecords, txtRecords) {
+  const { username, password, databaseName, searchParams } = parseMongoSrvUri(srvUri);
+  const credentials =
+    username || password
+      ? `${encodeURIComponent(username)}:${encodeURIComponent(password)}@`
+      : "";
+  const hosts = srvRecords
+    .map((record) => {
+      const host = String(record.name ?? record.NameTarget).replace(/\.$/, "");
+      const port = record.port ?? record.Port;
+      return `${host}:${port}`;
+    })
+    .join(",");
+  const mergedParams = new URLSearchParams(searchParams);
+
+  for (const txtRecord of txtRecords.flat()) {
+    for (const part of String(txtRecord).split("&")) {
+      if (!part) {
+        continue;
+      }
+
+      const [key, value = ""] = part.split("=");
+      if (!mergedParams.has(key)) {
+        mergedParams.set(key, value);
+      }
+    }
+  }
+
+  if (!mergedParams.has("tls") && !mergedParams.has("ssl")) {
+    mergedParams.set("tls", "true");
+  }
+
+  const query = mergedParams.toString();
+  return `mongodb://${credentials}${hosts}/${databaseName}${query ? `?${query}` : ""}`;
+}
+
+async function connectWithAtlasFallback(uri) {
+  try {
+    await mongoose.connect(uri);
+    return true;
+  } catch (error) {
+    if (
+      !uri.startsWith("mongodb+srv://") ||
+      (!isSrvLookupError(error) && !isTxtLookupError(error))
+    ) {
+      throw error;
+    }
+
+    const { hostname } = parseMongoSrvUri(uri);
+    const srvRecords = await resolveSrvRecords(hostname);
+    const txtRecords = await resolveTxtRecords(hostname);
+    const directUri = buildDirectMongoUri(uri, srvRecords, txtRecords);
+
+    await mongoose.connect(directUri);
+    return true;
+  }
+}
+
+function attachConnectionListeners() {
+  if (listenersAttached) {
+    return;
+  }
 
   mongoose.connection.on("error", (err) => {
     console.error("MongoDB connection error:", err);
@@ -73,64 +182,23 @@ const registerConnectionLogging = () => {
   mongoose.connection.on("disconnected", () => {
     console.warn("MongoDB disconnected");
   });
-};
 
-const logConnectionHint = (uri, error) => {
-  const isSrvUri = uri?.startsWith("mongodb+srv://");
-
-  if (error?.message?.includes("querySrv ECONNREFUSED") && isSrvUri) {
-    console.error(
-      "This URI uses MongoDB Atlas SRV DNS lookup, and Node.js could not resolve the SRV record.",
-    );
-    console.error(
-      "Try one of these fixes: use a direct Atlas URI in MONGO_DIRECT_URI, switch to Node.js 20/22 LTS, or verify local DNS/firewall/proxy settings.",
-    );
-  }
-};
+  listenersAttached = true;
+}
 
 const dbConnect = async () => {
-  const mongoUri = getMongoUri();
-  const dbName = getMongoDbName(mongoUri);
-
-  if (!mongoUri) {
-    console.error("MongoDB URI is not configured.");
-    console.error(
-      "Set MONGO_URI, set MONGO_DIRECT_URI, or run a local MongoDB instance on mongodb://127.0.0.1:27017/Huzaifa-Autos.",
-    );
+  if (!process.env.MONGO_URI) {
+    console.error("MONGO_URI is not defined in .env");
     process.exit(1);
   }
 
   try {
-    await mongoose.connect(mongoUri, {
-      serverSelectionTimeoutMS: 10000,
-      dbName,
-    });
-
+    await connectWithAtlasFallback(process.env.MONGO_URI);
+    attachConnectionListeners();
     console.log("MongoDB connected successfully");
-    registerConnectionLogging();
-    return;
+    return true;
   } catch (error) {
-    const fallbackUri = buildDirectAtlasUri(mongoUri);
-
-    if (fallbackUri && isSrvResolutionError(error)) {
-      try {
-        await mongoose.connect(fallbackUri, {
-          serverSelectionTimeoutMS: 10000,
-          dbName: getMongoDbName(fallbackUri) || dbName,
-        });
-
-        console.log("MongoDB connected successfully using direct Atlas hosts");
-        registerConnectionLogging();
-        return;
-      } catch (fallbackError) {
-        console.error("MongoDB direct-host fallback failed:", fallbackError.message);
-        console.error(`Attempted fallback URI: ${maskMongoUri(fallbackUri)}`);
-      }
-    }
-
     console.error("MongoDB connection failed:", error.message);
-    console.error(`Attempted URI: ${maskMongoUri(mongoUri)}`);
-    logConnectionHint(mongoUri, error);
     process.exit(1);
   }
 };

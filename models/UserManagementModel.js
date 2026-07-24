@@ -1,4 +1,10 @@
 import mongoose from "mongoose";
+import {
+  ROLE_KEYS,
+  normalizeRoleKey,
+  normalizeUserStatus,
+  USER_STATUSES,
+} from "../constants/accessControl.js";
 
 const userSchema = new mongoose.Schema(
   {
@@ -22,28 +28,24 @@ const userSchema = new mongoose.Schema(
     phone: {
       type: String,
       trim: true,
-      match: [/^03\d{2}-\d{7}$/, "Phone must be in format 0300-1234567"],
-    },
-    employeeId: {
-      type: String,
-      required: true,
-      unique: true,
+      default: "",
     },
     role: {
       type: String,
-      required: true,
-      trim: true,
-      uppercase: true,
-      default: "USER",
+      required: [true, "Role is required."],
+      enum: ROLE_KEYS,
+      set: normalizeRoleKey,
     },
     department: {
       type: String,
       trim: true,
+      default: "",
     },
     status: {
       type: String,
-      enum: ["Active", "Inactive", "Suspended"],
+      enum: USER_STATUSES,
       default: "Active",
+      set: normalizeUserStatus,
     },
     securitySettings: {
       requirePasswordChange: {
@@ -55,29 +57,21 @@ const userSchema = new mongoose.Schema(
         default: false,
       },
       ipRestrictions: {
-        type: [String], // Array of IP strings
+        type: [String],
         default: [],
       },
     },
     lastLogin: {
-      type: Date, // store last login date
+      type: Date,
       default: null,
-    },
-    createdAt: {
-      type: Date,
-      default: Date.now,
-    },
-    updatedAt: {
-      type: Date,
-      default: Date.now,
     },
   },
   { timestamps: true }
 );
 
-// Optional: auto-update updatedAt field on save
-userSchema.pre("save", function (next) {
-  this.updatedAt = Date.now();
+userSchema.pre("validate", function (next) {
+  this.role = normalizeRoleKey(this.role);
+  this.status = normalizeUserStatus(this.status);
   next();
 });
 

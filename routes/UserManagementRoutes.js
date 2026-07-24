@@ -1,5 +1,4 @@
 import express from "express";
-import verifyToken, { authorizePermissions } from "../middleware/auth.js";
 import {
   createUser,
   loginUser,
@@ -16,27 +15,29 @@ const router = express.Router();
 // User Management Routes
 // ---------------------------
 
+// Create a new user
+router.post("/", createUser);
+router.post("/createUser", createUser);
+
 // User login
 router.post("/login", loginUser);
-router.use(verifyToken);
 
 // Get all users
-router.get("/", authorizePermissions("USER_VIEW"), getUsers);
+router.get("/", getUsers);
 
 // Get a single user by ID
-router.get("/:id", authorizePermissions("USER_VIEW"), getUserById);
+router.get("/:id", getUserById);
 
 // Update a user by ID
-router.put("/updateUser/:id", authorizePermissions("USER_EDIT"), updateUser);
+router.put("/:id", updateUser);
+router.put("/updateUser/:id", updateUser);
 
 // Delete a user by ID
-router.delete("/deleteUser/:id", authorizePermissions("USER_DELETE"), deleteUser);
-
-// Create a new user
-router.post("/createUser", authorizePermissions("USER_CREATE"), createUser);
+router.delete("/:id", deleteUser);
+router.delete("/deleteUser/:id", deleteUser);
 
 // Update last login timestamp
-router.patch("/lastLogin/:id", authorizePermissions("USER_EDIT"), async (req, res) => {
+router.patch("/lastLogin/:id", async (req, res) => {
   try {
     const updatedUser = await updateLastLogin(req.params.id);
     res.status(200).json({ message: "Last login updated", user: updatedUser });

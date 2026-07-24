@@ -1,6 +1,5 @@
 // routes/role.routes.js
 import express from "express";
-import verifyToken, { authorizePermissions } from "../middleware/auth.js";
 import {
   createRole,
   getRoles,
@@ -11,12 +10,13 @@ import {
 
 const router = express.Router();
 
-router.use(verifyToken);
-
-router.get("/", authorizePermissions("ROLE_VIEW"), getRoles);
-router.get("/:id", authorizePermissions("ROLE_VIEW"), getRoleById);
-router.post("/createRole", authorizePermissions("ROLE_CREATE"), createRole);
-router.put("/updateRole/:id", authorizePermissions("ROLE_EDIT"), updateRole);
-router.delete("/deleteRole/:id", authorizePermissions("ROLE_DELETE"), deleteRole);
+router.post("/", createRole);
+router.get("/", getRoles);
+router.get("/:id", getRoleById);
+router.post("/createRole", createRole);
+router.put("/:id", updateRole);
+router.put("/updateRole/:id", updateRole);
+router.delete("/:id", deleteRole);
+router.delete("/deleteRole/:id", deleteRole);
 
 export default router;

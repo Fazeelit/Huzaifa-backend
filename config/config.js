@@ -1,18 +1,17 @@
-const parseUrlList = (value) =>
-  String(value || "")
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
+import dotenv from "dotenv";
+import path from "path";
+
+// Load the main .env file (since you currently have only .env)
+dotenv.config({ path: path.resolve(".env") });
+
+console.log(`✅ Loaded environment variables from .env`);
 
 export default {
-  port: process.env.PORT || 8080,
+  port: process.env.PORT || 3000,
   host: process.env.HOST || "127.0.0.1",
 
   // MongoDB
-  mongodbUri:
-    process.env.MONGO_DIRECT_URI ||
-    process.env.MONGO_URI ||
-    "mongodb://127.0.0.1:27017/Darazdb",
+  mongodbUri: process.env.MONGO_URI ,
 
   // JWT
   jwtSecret: process.env.JWT_SECRET || "default_secret_key",
@@ -29,7 +28,7 @@ export default {
   emailFrom: process.env.EMAIL_FROM,
 
   // Frontend URLs (CORS)
-  webAppUrl: parseUrlList(process.env.WEBAPP_URL),
+  webAppUrl: process.env.WEBAPP_URL ? process.env.WEBAPP_URL.split(",") : [],
 
   // Cloudinary
   cloudinary: {
