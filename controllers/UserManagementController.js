@@ -69,8 +69,7 @@ function sendAuthError(res, status, message, reason) {
   return res.status(status).json(payload);
 }
 
-const INVALID_LOGIN_MESSAGE =
-  "Invalid email or password. Double-check your email, password, and selected role.";
+const INVALID_LOGIN_MESSAGE = "Invalid email or password.";
 
 function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
