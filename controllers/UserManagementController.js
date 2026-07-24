@@ -72,6 +72,24 @@ function sendAuthError(res, status, message, reason) {
 const INVALID_LOGIN_MESSAGE =
   "Invalid email or password. Double-check your email, password, and selected role.";
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+async function findUserForLogin(email) {
+  const directMatch = await User.findOne({ email });
+  if (directMatch) {
+    return directMatch;
+  }
+
+  return User.findOne({
+    email: {
+      $regex: `^\\s*${escapeRegExp(email)}\\s*$`,
+      $options: "i",
+    },
+  });
+}
+
 function sendValidationError(res, message, reason) {
   return res.status(400).json({
     success: false,
@@ -252,7 +270,7 @@ const loginUser = async (req, res) => {
       return sendValidationError(res, passwordValidation.message, passwordValidation.reason);
     }
 
-    const user = await User.findOne({ email: normalizedEmail });
+    const user = await findUserForLogin(normalizedEmail);
     if (!user) {
       return sendAuthError(res, 401, INVALID_LOGIN_MESSAGE, "user_not_found");
     }
@@ -280,7 +298,7 @@ const loginUser = async (req, res) => {
       return sendAuthError(
         res,
         401,
-        "Selected role does not match your account role.",
+        INVALID_LOGIN_MESSAGE,
         "role_mismatch"
       );
     }
