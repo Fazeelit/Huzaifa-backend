@@ -64,6 +64,39 @@ function sendAuthError(res, status, message, reason) {
   return res.status(status).json(payload);
 }
 
+function normalizeStoredPassword(password) {
+  const value = String(password ?? "").trim();
+
+  if (value.startsWith("$2y$") || value.startsWith("$2x$")) {
+    return `$2b$${value.slice(4)}`;
+  }
+
+  return value;
+}
+
+async function verifyUserPassword(plainPassword, storedPassword) {
+  const normalizedStoredPassword = normalizeStoredPassword(storedPassword);
+  const isBcryptHash = /^\$2[abxy]\$\d{2}\$/.test(normalizedStoredPassword);
+
+  if (isBcryptHash) {
+    const isMatch = await bcrypt.compare(plainPassword, normalizedStoredPassword);
+
+    return {
+      isMatch,
+      shouldUpgradePasswordHash: isMatch && normalizedStoredPassword !== storedPassword,
+    };
+  }
+
+  const legacyPassword = String(storedPassword ?? "");
+  const isMatch =
+    plainPassword === legacyPassword || plainPassword === legacyPassword.trim();
+
+  return {
+    isMatch,
+    shouldUpgradePasswordHash: isMatch,
+  };
+}
+
 const createUser = async (req, res) => {
   try {
     const {
@@ -161,17 +194,10 @@ const loginUser = async (req, res) => {
       );
     }
 
-    const hasHashedPassword =
-      typeof user.password === "string" && user.password.startsWith("$2");
-
-    let isMatch = false;
-    let shouldUpgradePasswordHash = false;
-    if (hasHashedPassword) {
-      isMatch = await bcrypt.compare(password, user.password);
-    } else {
-      isMatch = password === user.password;
-      shouldUpgradePasswordHash = isMatch;
-    }
+    const { isMatch, shouldUpgradePasswordHash } = await verifyUserPassword(
+      password,
+      user.password
+    );
 
     if (!isMatch) {
       return sendAuthError(res, 401, "Invalid email or password.", "invalid_password");
