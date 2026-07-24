@@ -1,5 +1,15 @@
 const ROLE_KEYS = ["ADMIN", "CLERK", "PRINCIPAL", "TEACHERS", "STUDENTS"];
 
+const ROLE_ALIASES = {
+  TEACHER: "TEACHERS",
+  TEACHERS: "TEACHERS",
+  STUDENT: "STUDENTS",
+  STUDENTS: "STUDENTS",
+  PRINCIPLE: "PRINCIPAL",
+  ADMINISTRATOR: "ADMIN",
+  OFFICE_CLERK: "CLERK",
+};
+
 const USER_STATUSES = ["Active", "Inactive", "Suspended"];
 
 const SCHOOL_PERMISSION_KEYS = [
@@ -17,7 +27,12 @@ const SCHOOL_PERMISSION_KEYS = [
 ];
 
 function normalizeRoleKey(role) {
-  return String(role || "").trim().toUpperCase();
+  const normalized = String(role || "")
+    .trim()
+    .replace(/[\s-]+/g, "_")
+    .toUpperCase();
+
+  return ROLE_ALIASES[normalized] || normalized;
 }
 
 function normalizeUserStatus(status) {
