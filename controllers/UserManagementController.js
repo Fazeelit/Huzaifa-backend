@@ -66,7 +66,29 @@ function sendAuthError(res, status, message, reason) {
     payload.debug = reason;
   }
 
+  console.warn("[auth] Response:", {
+    status,
+    reason,
+    message,
+  });
+
   return res.status(status).json(payload);
+}
+
+function logLoginFailure(reason, details = {}) {
+  const safeDetails = Object.entries(details).reduce((result, [key, value]) => {
+    if (value === undefined || value === null || value === "") {
+      return result;
+    }
+
+    result[key] = value;
+    return result;
+  }, {});
+
+  console.warn("[auth] Login failed:", {
+    reason,
+    ...safeDetails,
+  });
 }
 
 const INVALID_LOGIN_MESSAGE = "Invalid email or password.";
@@ -271,10 +293,19 @@ const loginUser = async (req, res) => {
 
     const user = await findUserForLogin(normalizedEmail);
     if (!user) {
+      logLoginFailure("user_not_found", {
+        email: normalizedEmail,
+        selectedRole: selectedRole || undefined,
+      });
       return sendAuthError(res, 401, INVALID_LOGIN_MESSAGE, "user_not_found");
     }
 
     if (user.status !== "Active") {
+      logLoginFailure("inactive_user", {
+        email: normalizedEmail,
+        storedRole: normalizeRoleKey(user.role),
+        status: user.status,
+      });
       return sendAuthError(
         res,
         403,
@@ -289,11 +320,21 @@ const loginUser = async (req, res) => {
     );
 
     if (!isMatch) {
+      logLoginFailure("invalid_password", {
+        email: normalizedEmail,
+        storedRole: normalizeRoleKey(user.role),
+        selectedRole: selectedRole || undefined,
+      });
       return sendAuthError(res, 401, INVALID_LOGIN_MESSAGE, "invalid_password");
     }
 
     const normalizedRole = normalizeRoleKey(user.role);
     if (selectedRole && selectedRole !== normalizedRole) {
+      logLoginFailure("role_mismatch", {
+        email: normalizedEmail,
+        storedRole: normalizedRole,
+        selectedRole,
+      });
       return sendAuthError(
         res,
         401,
