@@ -40,6 +40,10 @@ const feeSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+feeSchema.index({ studentId: 1, year: -1, month: 1, createdAt: -1 });
+feeSchema.index({ status: 1, createdAt: -1 });
+feeSchema.index({ createdAt: -1 });
+
 const Fee = mongoose.models.Fee || mongoose.model("Fee", feeSchema);
 
 export default Fee;

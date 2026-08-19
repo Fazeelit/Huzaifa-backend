@@ -199,6 +199,10 @@ const studentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+studentSchema.index({ status: 1, enrollmentClass: 1, createdAt: -1 });
+studentSchema.index({ email: 1 });
+studentSchema.index({ createdAt: -1 });
+
 const Student =
   mongoose.models.Student || mongoose.model("Student", studentSchema);
 

@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: mohafiz-backend
+    runtime: node
+    buildCommand: npm ci --omit=dev --no-audit --no-fund
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production

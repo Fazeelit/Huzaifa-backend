@@ -64,7 +64,7 @@ const getAllFees = async (req, res) => {
       query.$or = [{ month: regex }, { studentId: regex }, { status: regex }];
     }
 
-    const fees = await Fee.find(query).sort({ createdAt: -1 });
+    const fees = await Fee.find(query).sort({ createdAt: -1 }).lean();
 
     return res.status(200).json({
       success: true,

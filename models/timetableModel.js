@@ -47,6 +47,10 @@ const timetableSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+timetableSchema.index({ scope: 1, className: 1, section: 1, day: 1, createdAt: -1 });
+timetableSchema.index({ teacher: 1, day: 1, createdAt: -1 });
+timetableSchema.index({ createdAt: -1 });
+
 const Timetable =
   mongoose.models.Timetable || mongoose.model("Timetable", timetableSchema);
 

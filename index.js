@@ -3,6 +3,7 @@ import express from "express";
 import morgan from "morgan";
 import cors from "cors";
 import http from "http";
+import mongoose from "mongoose";
 
 // ------------------ Database ------------------
 import dbConnect from "./config/database.js";
@@ -64,16 +65,37 @@ const DEFAULT_ROLE_SEED = [
 
 async function ensureDefaultRoles() {
   try {
-    for (const roleData of DEFAULT_ROLE_SEED) {
-      await Role.updateOne(
-        { role: roleData.role },
-        { $setOnInsert: roleData },
-        { upsert: true }
-      );
-    }
+    // One network round-trip instead of one awaited query per role.
+    await Role.bulkWrite(
+      DEFAULT_ROLE_SEED.map((roleData) => ({
+        updateOne: {
+          filter: { role: roleData.role },
+          update: { $setOnInsert: roleData },
+          upsert: true,
+        },
+      })),
+      { ordered: false }
+    );
   } catch (error) {
     console.error("Failed to seed default roles:", error);
   }
+}
+
+async function ensureDatabaseIndexes() {
+  const models = Object.values(mongoose.models);
+
+  const results = await Promise.allSettled(
+    models.map((model) => model.createIndexes())
+  );
+
+  results.forEach((result, index) => {
+    if (result.status === "rejected") {
+      console.error(
+        `Failed to create indexes for ${models[index].modelName}:`,
+        result.reason?.message || result.reason
+      );
+    }
+  });
 }
 
 async function loadOptionalRoute(modulePath, label) {
@@ -164,6 +186,16 @@ app.get("/", (req, res) => {
   res.send("Backend is running!");
 });
 
+// A lightweight endpoint for Render health checks. It never waits on MongoDB.
+app.get("/health", (req, res) => {
+  const databaseReady = mongoose.connection.readyState === 1;
+  res.status(200).json({
+    status: databaseReady ? "ready" : "starting",
+    database: databaseReady ? "connected" : "connecting",
+    uptimeSeconds: Math.floor(process.uptime()),
+  });
+});
+
 // ------------------ API Routes ------------------
 app.use("/api/user-management", userManagementRoutes);
 app.use("/api/users", userManagementRoutes);
@@ -245,16 +277,18 @@ async function startServer() {
 }
 
 async function bootstrap() {
-  const isDatabaseConnected = await dbConnect();
+  // Bind Render's assigned port immediately. Database initialization is kept off
+  // the cold-start critical path so the service becomes reachable in seconds.
+  const activePort = await startServer();
+  console.log(`Server running on ${HOST}:${activePort}`);
 
+  const isDatabaseConnected = await dbConnect();
   if (isDatabaseConnected) {
-    await ensureDefaultRoles();
-  } else {
-    console.warn("Skipping default role seeding because MongoDB is unavailable.");
+    // These run only after Render can already serve health checks.
+    await Promise.all([ensureDefaultRoles(), ensureDatabaseIndexes()]);
+    return;
   }
 
-  const activePort = await startServer();
-  console.log(`Server running at http://192.168.100.78:${activePort}`);
   if (!isDatabaseConnected) {
     console.warn("API started without MongoDB. Database-backed routes will fail until the connection issue is resolved.");
   }

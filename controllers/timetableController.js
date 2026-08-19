@@ -129,7 +129,7 @@ const getAllTimetables = async (req, res) => {
       ];
     }
 
-    const timetables = await Timetable.find(query).sort({ createdAt: -1 });
+    const timetables = await Timetable.find(query).sort({ createdAt: -1 }).lean();
 
     return res.status(200).json({
       success: true,

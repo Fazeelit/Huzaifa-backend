@@ -109,7 +109,7 @@ const getAllResults = async (req, res) => {
       ];
     }
 
-    const results = await Result.find(query).sort({ createdAt: -1 });
+    const results = await Result.find(query).sort({ createdAt: -1 }).lean();
 
     return res.status(200).json({
       success: true,
@@ -170,7 +170,7 @@ const getResultByStudent = async (req, res) => {
       ],
     };
 
-    const resultItem = await Result.findOne(query).sort({ createdAt: -1 });
+    const resultItem = await Result.findOne(query).sort({ createdAt: -1 }).lean();
 
     if (!resultItem) {
       return res.status(200).json({

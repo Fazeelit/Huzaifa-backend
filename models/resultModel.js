@@ -102,6 +102,11 @@ const resultSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+resultSchema.index({ studentId: 1, createdAt: -1 });
+resultSchema.index({ registrationNumber: 1, createdAt: -1 });
+resultSchema.index({ className: 1, section: 1, createdAt: -1 });
+resultSchema.index({ createdAt: -1 });
+
 const Result =
   mongoose.models.Result || mongoose.model("Result", resultSchema);
 

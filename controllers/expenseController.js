@@ -48,7 +48,7 @@ const getAllExpenses = async (req, res) => {
       query.$or = [{ category: regex }];
     }
 
-    const expenses = await Expense.find(query).sort({ createdAt: -1 });
+    const expenses = await Expense.find(query).sort({ createdAt: -1 }).lean();
 
     return res.status(200).json({
       success: true,

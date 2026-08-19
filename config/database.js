@@ -8,6 +8,21 @@ dotenv.config();
 
 const execFileAsync = promisify(execFile);
 let listenersAttached = false;
+let connectionPromise = null;
+
+const connectionOptions = {
+  // Fail quickly during a cold start instead of holding the process for MongoDB's
+  // much longer defaults. Mongoose will keep monitoring an established topology.
+  serverSelectionTimeoutMS: Number(process.env.MONGO_SERVER_SELECTION_TIMEOUT_MS || 10000),
+  connectTimeoutMS: Number(process.env.MONGO_CONNECT_TIMEOUT_MS || 10000),
+  maxPoolSize: Number(process.env.MONGO_MAX_POOL_SIZE || 20),
+  // Keep a couple of warm connections so the first query after idle time does
+  // not pay the TCP/TLS connection cost.
+  minPoolSize: Number(process.env.MONGO_MIN_POOL_SIZE || 2),
+  maxConnecting: Number(process.env.MONGO_MAX_CONNECTING || 4),
+  maxIdleTimeMS: Number(process.env.MONGO_MAX_IDLE_TIME_MS || 60000),
+  autoIndex: process.env.NODE_ENV !== "production",
+};
 
 function isSrvLookupError(error) {
   return error?.code === "ECONNREFUSED" && error?.syscall === "querySrv";
@@ -162,7 +177,7 @@ function buildDirectMongoUri(srvUri, srvRecords, txtRecords) {
 
 async function connectWithAtlasFallback(uri) {
   try {
-    await mongoose.connect(uri);
+    await mongoose.connect(uri, connectionOptions);
     return true;
   } catch (error) {
     if (
@@ -177,7 +192,7 @@ async function connectWithAtlasFallback(uri) {
     const txtRecords = await resolveTxtRecords(hostname);
     const directUri = buildDirectMongoUri(uri, srvRecords, txtRecords);
 
-    await mongoose.connect(directUri);
+    await mongoose.connect(directUri, connectionOptions);
     return true;
   }
 }
@@ -199,21 +214,35 @@ function attachConnectionListeners() {
 }
 
 const dbConnect = async () => {
-  if (!process.env.MONGO_URI) {
-    console.error("MONGO_URI is not defined in .env");
-    process.exit(1);
+  if (mongoose.connection.readyState === 1) {
+    return true;
   }
 
-  try {
-    assertAtlasMongoUri(process.env.MONGO_URI);
-    await connectWithAtlasFallback(process.env.MONGO_URI);
-    attachConnectionListeners();
-    console.log("MongoDB connected successfully");
-    return true;
-  } catch (error) {
-    console.error("MongoDB connection failed:", error.message);
-    process.exit(1);
+  if (connectionPromise) {
+    return connectionPromise;
   }
+
+  if (!process.env.MONGO_URI) {
+    console.error("MONGO_URI is not defined in .env");
+    return false;
+  }
+
+  connectionPromise = (async () => {
+    try {
+      assertAtlasMongoUri(process.env.MONGO_URI);
+      await connectWithAtlasFallback(process.env.MONGO_URI);
+      attachConnectionListeners();
+      console.log("✅ MongoDB connected successfully");
+      return true;
+    } catch (error) {
+      console.error("MongoDB connection failed:", error.message);
+      return false;
+    } finally {
+      connectionPromise = null;
+    }
+  })();
+
+  return connectionPromise;
 };
 
 export default dbConnect;

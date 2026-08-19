@@ -20,6 +20,9 @@ const expenseSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+expenseSchema.index({ category: 1, createdAt: -1 });
+expenseSchema.index({ createdAt: -1 });
+
 const Expense =
   mongoose.models.Expense || mongoose.model("Expense", expenseSchema);
 

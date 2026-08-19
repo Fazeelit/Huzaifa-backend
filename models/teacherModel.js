@@ -240,6 +240,11 @@ const teacherSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+teacherSchema.index({ status: 1, "classAssign.teacherType": 1, createdAt: -1 });
+teacherSchema.index({ "personalInfo.email": 1 });
+teacherSchema.index({ "personalInfo.cnic": 1 });
+teacherSchema.index({ createdAt: -1 });
+
 const Teacher =
   mongoose.models.Teacher || mongoose.model("Teacher", teacherSchema);
 

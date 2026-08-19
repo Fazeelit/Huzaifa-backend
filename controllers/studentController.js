@@ -141,7 +141,7 @@ const getAllStudents = async (req, res) => {
       ];
     }
 
-    const students = await Student.find(query).sort({ createdAt: -1 });
+    const students = await Student.find(query).sort({ createdAt: -1 }).lean();
 
     return res.status(200).json({
       success: true,

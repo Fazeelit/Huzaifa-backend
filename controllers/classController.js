@@ -56,7 +56,7 @@ const getAllClasses = async (req, res) => {
       query.$or = [{ name: regex }, { section: regex }, { incharge: regex }, { academicYear: regex }];
     }
 
-    const classes = await ClassModel.find(query).sort({ createdAt: -1 });
+    const classes = await ClassModel.find(query).sort({ createdAt: -1 }).lean();
 
     return res.status(200).json({
       success: true,

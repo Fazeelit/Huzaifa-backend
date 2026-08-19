@@ -114,7 +114,7 @@ const getAllAttendance = async (req, res) => {
       ];
     }
 
-    const attendance = await Attendance.find(query).sort({ date: -1, createdAt: -1 });
+    const attendance = await Attendance.find(query).sort({ date: -1, createdAt: -1 }).lean();
 
     return res.status(200).json({
       success: true,

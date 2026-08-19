@@ -28,6 +28,7 @@ const classSchema = new mongoose.Schema(
 );
 
 classSchema.index({ name: 1, section: 1 }, { unique: true });
+classSchema.index({ createdAt: -1 });
 
 const ClassModel =
   mongoose.models.Class || mongoose.model("Class", classSchema);
